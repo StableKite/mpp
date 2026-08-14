@@ -105,6 +105,10 @@ static MPP_RET hal_h265d_vdpu384a_init(void *hal, MppHalCfg *cfg)
 
     vdpu38x_rcb_calc_init((Vdpu38xRcbCtx **)&reg_ctx->rcb_ctx);
     hal_dbg_init(&reg_ctx->dbg_ctx, "hal_h265d");
+    if (reg_ctx->fast_mode && reg_ctx->dbg_ctx) {
+        mpp_log("fast mode enabled, hal_dbg will be disabled");
+        hal_dbg_deinit(&reg_ctx->dbg_ctx);
+    }
 
     return MPP_OK;
 }
@@ -249,6 +253,8 @@ static MPP_RET hal_h265d_vdpu384a_gen_regs(void *hal,  HalTaskInfo *syn)
     }
 
     hal_dbg_setup(reg_ctx->dbg_ctx, NULL);
+
+    vdpu38x_h265d_dbg_ref_frames(reg_ctx->dbg_ctx, &dxva_ctx->pp);
 
     /* output pps */
     hw_regs = (Vdpu384aRegSet*)reg_ctx->hw_regs;
@@ -627,8 +633,6 @@ static MPP_RET hal_h265d_vdpu384a_wait(void *hal, HalTaskInfo *task)
         hw_regs = ( Vdpu384aRegSet *)reg_ctx->hw_regs;
     }
 
-    hal_dbg_finish(reg_ctx->dbg_ctx);
-
     if (task->dec.flags.parse_err ||
         (task->dec.flags.ref_err && !cfg->cfg->base.disable_error)) {
         h265h_dbg(H265H_DBG_TASK_ERR, "%s found task error\n", __FUNCTION__);
@@ -697,6 +701,8 @@ ERR_PROC:
     if (reg_ctx->fast_mode) {
         reg_ctx->g_buf[index].use_flag = 0;
     }
+
+    hal_dbg_finish(reg_ctx->dbg_ctx);
 
     return ret;
 }

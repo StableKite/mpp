@@ -60,34 +60,36 @@ set (MPP_SRC
 set(MPP_VERSION "0")
 set(MPP_ABI_VERSION "1")
 
-add_library(${MPP_SHARED} SHARED ${MPP_SRC})
-target_link_libraries(${MPP_SHARED} PRIVATE ${ASAN_LIB})
-set_target_properties(${MPP_SHARED} PROPERTIES C_VISIBILITY_PRESET default)
-set_target_properties(${MPP_SHARED} PROPERTIES CXX_VISIBILITY_PRESET default)
+if(BUILD_SHARED_LIBS)
+    add_library(${MPP_SHARED} SHARED ${MPP_SRC})
+    target_link_libraries(${MPP_SHARED} PRIVATE ${ASAN_LIB})
+    set_target_properties(${MPP_SHARED} PROPERTIES C_VISIBILITY_PRESET default)
+    set_target_properties(${MPP_SHARED} PROPERTIES CXX_VISIBILITY_PRESET default)
 
-# NOTE: due to legacy libray naming issue we can not support version on Android
-if (NOT ANDROID)
-set_target_properties(${MPP_SHARED} PROPERTIES VERSION ${MPP_VERSION})
-set_target_properties(${MPP_SHARED} PROPERTIES SOVERSION ${MPP_ABI_VERSION})
-endif()
-
-set_target_properties(${MPP_SHARED} PROPERTIES FOLDER "mpp")
-set_target_properties(${MPP_SHARED} PROPERTIES CLEAN_DIRECT_OUTPUT 1)
-target_link_libraries(${MPP_SHARED} PRIVATE kmpp
-    ${BEGIN_WHOLE_ARCHIVE} mpp_vproc mpp_codec mpp_hal mpp_base kmpp_base osal ${END_WHOLE_ARCHIVE})
-target_link_libraries(${MPP_SHARED} PUBLIC ${LIBM} ${CMAKE_THREAD_LIBS_INIT})
-
-# those special platform here
-if(ANDROID)
-    add_definitions(-static)
-    # in Android pthread is in libc, also need liblog
-    # Android 14 requires libc++ not libstdc++
-    if("${ANDROID_STL}" STREQUAL "c++_static")
-        target_link_libraries(${MPP_SHARED} PUBLIC log)
-    else()
-        target_link_libraries(${MPP_SHARED} PUBLIC log stdc++)
+    # NOTE: due to legacy libray naming issue we can not support version on Android
+    if (NOT ANDROID)
+    set_target_properties(${MPP_SHARED} PROPERTIES VERSION ${MPP_VERSION})
+    set_target_properties(${MPP_SHARED} PROPERTIES SOVERSION ${MPP_ABI_VERSION})
     endif()
-endif(ANDROID)
+
+    set_target_properties(${MPP_SHARED} PROPERTIES FOLDER "mpp")
+    set_target_properties(${MPP_SHARED} PROPERTIES CLEAN_DIRECT_OUTPUT 1)
+    target_link_libraries(${MPP_SHARED} PRIVATE kmpp
+        ${BEGIN_WHOLE_ARCHIVE} mpp_vproc mpp_codec mpp_hal mpp_base kmpp_base osal ${END_WHOLE_ARCHIVE})
+    target_link_libraries(${MPP_SHARED} PUBLIC ${LIBM} ${CMAKE_THREAD_LIBS_INIT})
+
+    # those special platform here
+    if(ANDROID)
+        add_definitions(-static)
+        # in Android pthread is in libc, also need liblog
+        # Android 14 requires libc++ not libstdc++
+        if("${ANDROID_STL}" STREQUAL "c++_static")
+            target_link_libraries(${MPP_SHARED} PUBLIC log)
+        else()
+            target_link_libraries(${MPP_SHARED} PUBLIC log stdc++)
+        endif()
+    endif(ANDROID)
+endif()
 
 # build static library
 add_library(${MPP_STATIC} STATIC ${MPP_SRC})
@@ -123,5 +125,7 @@ add_custom_command(TARGET ${MPP_STATIC} POST_BUILD
 
 add_subdirectory(legacy)
 
-install(TARGETS ${MPP_SHARED} LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}")
+if(BUILD_SHARED_LIBS)
+    install(TARGETS ${MPP_SHARED} LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}")
+endif()
 install(TARGETS ${MPP_STATIC} ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}")

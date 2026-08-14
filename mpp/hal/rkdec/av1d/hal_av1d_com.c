@@ -954,7 +954,7 @@ static void hal_av1d_release_res(void *hal)
     for (i = 0; i < max_cnt; i++)
         BUF_PUT(reg_ctx->rcb_bufs[i]);
     vdpu38x_rcb_calc_deinit(reg_ctx->rcb_ctx);
-    hal_dbg_deinit(reg_ctx->dbg_ctx);
+    hal_dbg_deinit(&reg_ctx->dbg_ctx);
 
     BUF_PUT(reg_ctx->filter_mem);
 
@@ -972,6 +972,39 @@ static void hal_av1d_release_res(void *hal)
     }
 
     MPP_FREE(p_hal->reg_ctx);
+}
+
+static const char *const av1_ref_name[AV1_REFS_PER_FRAME] = {
+    "LAST", "LAST2", "LAST3", "GOLDEN", "BWDREF", "ALTREF2", "ALTREF"
+};
+
+void vdpu38x_av1d_dbg_ref_frames(Av1dHalCtx *p_hal, DXVA_PicParams_AV1 *dxva)
+{
+    HalDbgCtx *dbg = ((Vdpu38xAv1dRegCtx *)p_hal->reg_ctx)->dbg_ctx;
+    RK_U32 i;
+
+    if (!hal_dbg_flag_en(dbg, HAL_DBG_LOG))
+        return;
+
+    hal_dbg_log(dbg, "ref_frames.log", "w",
+                "cur_pic_slot=%d  order_hint=%u\n",
+                dxva->CurrPic.Index7Bits, dxva->order_hint);
+
+    for (i = 0; i < AV1_REFS_PER_FRAME; i++) {
+        RK_U32 slot = dxva->ref_frame_idx[i];
+        RK_S8 idx = dxva->frame_refs[slot].Index;
+
+        if (AV1D_REF_IDX_IS_INVALID(idx)) {
+            hal_dbg_log(dbg, "ref_frames.log", "a",
+                        "  ref[%d] %-7s -> slot %d (invalid)\n",
+                        i, av1_ref_name[i], slot);
+        } else {
+            hal_dbg_log(dbg, "ref_frames.log", "a",
+                        "  ref[%d] %-7s -> slot %d -> frame_slot %d  order_hint=%u\n",
+                        i, av1_ref_name[i], slot, idx,
+                        dxva->frame_refs[slot].order_hint);
+        }
+    }
 }
 
 MPP_RET vdpu38x_av1d_deinit(void *hal)
@@ -1525,6 +1558,10 @@ void vdpu38x_av1d_set_cdf_segid(Av1dHalCtx *p_hal, DXVA_PicParams_AV1 *dxva,
         hal_dbg_dumpf_buf(reg_ctx->dbg_ctx, "cabac_cdf_in.dat", buf_tmp,
                           NON_COEF_CDF_SIZE + COEF_CDF_SIZE * coeff_cdf_idx,
                           COEF_CDF_SIZE, 128, "a+");
+        if (buf_tmp != reg_ctx->cdf_rd_def_base)
+            hal_dbg_dumpf_buf(reg_ctx->dbg_ctx, "cabac_segid_in.dat", buf_tmp,
+                              ALL_CDF_SIZE, reg_ctx->cdf_segid_size - ALL_CDF_SIZE,
+                              128, "w+");
     }
     cdf_buf = hal_bufs_get_buf(reg_ctx->cdf_segid_bufs, dxva->CurrPic.Index7Bits);
     *noncoef_wr_base = mpp_buffer_get_fd(cdf_buf->buf[0]);

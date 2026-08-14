@@ -157,6 +157,10 @@ static MPP_RET hal_vp9d_vdpu383_init(void *hal, MppHalCfg *cfg)
 
     vdpu38x_rcb_calc_init((Vdpu38xRcbCtx **)&hw_ctx->rcb_ctx);
     hal_dbg_init(&p_hal->dbg_ctx, "hal_vp9d");
+    if (p_hal->fast_mode && p_hal->dbg_ctx) {
+        mpp_log("fast mode enabled, hal_dbg will be disabled");
+        hal_dbg_deinit(&p_hal->dbg_ctx);
+    }
 
     return ret;
 __FAILED:
@@ -311,6 +315,8 @@ static MPP_RET hal_vp9d_vdpu383_gen_regs(void *hal, HalTaskInfo *task)
     memset(regs, 0, sizeof(Vdpu383RegSet));
 
     hal_dbg_setup(p_hal->dbg_ctx, NULL);
+
+    vdpu38x_vp9d_dbg_ref_frames(p_hal->dbg_ctx, pic_param);
 
     /* uncompress header data */
     vdpu38x_vp9d_uncomp_hdr(p_hal, pic_param, (RK_U64 *)hw_ctx->header_data, GBL_SIZE / 8);
@@ -731,8 +737,6 @@ static MPP_RET hal_vp9d_vdpu383_wait(void *hal, HalTaskInfo *task)
 
     mpp_assert(hw_regs);
 
-    hal_dbg_finish(p_hal->dbg_ctx);
-
     ret = mpp_dev_ioctl(p_hal->cfg->dev, MPP_DEV_CMD_POLL, NULL);
     if (ret)
         mpp_err_f("poll cmd failed %d\n", ret);
@@ -786,7 +790,8 @@ static MPP_RET hal_vp9d_vdpu383_wait(void *hal, HalTaskInfo *task)
         hw_ctx->g_buf[task->dec.reg_index].use_flag = 0;
     }
 
-    (void)task;
+    hal_dbg_finish(p_hal->dbg_ctx);
+
     return ret;
 }
 
