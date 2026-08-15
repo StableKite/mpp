@@ -310,6 +310,10 @@ MPP_RET vdpu384b_av1d_init(void *hal, MppHalCfg *cfg)
     reg_ctx = (Vdpu38xAv1dRegCtx *)p_hal->reg_ctx;
     vdpu38x_rcb_calc_init((Vdpu38xRcbCtx **)&reg_ctx->rcb_ctx);
     hal_dbg_init(&reg_ctx->dbg_ctx, "hal_av1d");
+    if (p_hal->fast_mode && reg_ctx->dbg_ctx) {
+        mpp_log("fast mode enabled, hal_dbg will be disabled");
+        hal_dbg_deinit(&reg_ctx->dbg_ctx);
+    }
 
 __RETURN:
     return MPP_OK;
@@ -464,6 +468,8 @@ MPP_RET vdpu384b_av1d_gen_regs(void *hal, HalTaskInfo *task)
 
     hal_dbg_setup(ctx->dbg_ctx, NULL);
 
+    vdpu38x_av1d_dbg_ref_frames(p_hal, dxva);
+
     vdpu384b_init_ctrl_regs(regs, MPP_VIDEO_CodingAV1);
     vdpu38x_setup_statistic(&regs->ctrl_regs);
 
@@ -477,7 +483,7 @@ MPP_RET vdpu384b_av1d_gen_regs(void *hal, HalTaskInfo *task)
         regs->comm_paras.reg67_global_len = VDPU384B_UNCMPS_HEADER_SIZE / 16; // 128 bit as unit
         regs->comm_addrs.reg131_gbl_base = ctx->bufs_fd;
         mpp_dev_set_reg_offset(cfg->dev, 131, ctx->offset_uncomps);
-        hal_dbg_dumpf_buf(ctx->dbg_ctx, "global_cfg.dat", ctx->bufs, 0,
+        hal_dbg_dumpf_buf(ctx->dbg_ctx, "global_cfg.dat", ctx->bufs, ctx->offset_uncomps,
                           regs->comm_paras.reg67_global_len * 16, 128, "w+");
         // input strm
         p_hal->strm_len = (RK_S32)mpp_packet_get_length(task->dec.input_packet);
@@ -765,8 +771,6 @@ MPP_RET vdpu384b_av1d_wait(void *hal, HalTaskInfo *task)
     HalBuf *hal_buf_tmp = NULL;
     MppBuffer mbuffer = NULL;
 
-    hal_dbg_finish(reg_ctx->dbg_ctx);
-
     if (hal_dbg_flag_en(reg_ctx->dbg_ctx, HAL_DBG_DUMP) && 0 == p_hal->fast_mode) {
         hal_buf_tmp = hal_bufs_get_buf(reg_ctx->colmv_bufs, dxva->CurrPic.Index7Bits);
         hal_dbg_dumpf_buf(reg_ctx->dbg_ctx, "colmv_cur_frame.dat", hal_buf_tmp->buf[0],
@@ -789,6 +793,8 @@ MPP_RET vdpu384b_av1d_wait(void *hal, HalTaskInfo *task)
         hal_buf_tmp = hal_bufs_get_buf(reg_ctx->cdf_segid_bufs, dxva->CurrPic.Index7Bits);
         hal_dbg_dumpf_buf(reg_ctx->dbg_ctx, "cabac_cdf_out.dat", hal_buf_tmp->buf[0],
                           0, NON_COEF_CDF_SIZE + COEF_CDF_SIZE, 128, "w+");
+        hal_dbg_dumpf_buf(reg_ctx->dbg_ctx, "cabac_segid_out.dat", hal_buf_tmp->buf[0],
+                          ALL_CDF_SIZE, reg_ctx->cdf_segid_size - ALL_CDF_SIZE, 128, "w+");
     }
 
     if (task->dec.flags.parse_err ||
@@ -821,7 +827,8 @@ __SKIP_HARD:
     if (p_hal->fast_mode)
         reg_ctx->reg_buf[task->dec.reg_index].valid = 0;
 
-    (void)task;
+    hal_dbg_finish(reg_ctx->dbg_ctx);
+
 __RETURN:
     return ret = MPP_OK;
 }

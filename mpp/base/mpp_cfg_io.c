@@ -25,6 +25,7 @@
 
 #define MAX_CFG_DEPTH                   (64)
 #define CFG_IO_ARRAY_ELEM_COUNT         (8)
+#define VLA_INIT_CNT                    (8)
 
 #define CFG_IO_DBG_FLOW                 (0x00000001)
 #define CFG_IO_DBG_BYTE                 (0x00000002)
@@ -105,6 +106,7 @@ struct MppCfgIoImpl_t {
     MppCfgType              array_type;
 
     union {
+        void               *ptr;
         /* MPP_CFG_TYPE_STRING */
         struct {
             char            *string;
@@ -190,6 +192,13 @@ static rk_u32 sizeof_type(MppCfgType type)
         type = MPP_CFG_TYPE_BUTT;
 
     return sizes[type];
+}
+
+static void mpp_cfg_set_flag(void *st, rk_u32 flag_offset)
+{
+    rk_u32 *flag_ptr = (rk_u32 *)((rk_u8 *)st + (((rk_u32)flag_offset & ~31U) / 8));
+
+    *flag_ptr |= 1U << (flag_offset & 31);
 }
 
 static char *dup_str(const char *str, rk_s32 len)
@@ -1054,22 +1063,14 @@ static rk_s32 write_byte(MppCfgStrBuf *str, void *buf, rk_s32 *size, const char 
 
 static rk_s32 write_indent(MppCfgStrBuf *str, const char *caller)
 {
-    rk_s32 depth;
-
     cfg_io_dbg_byte("str %p-[%p:%d] write indent %d at %s\n",
                     str, str->buf, str->buf_size, str->depth, caller);
 
-    depth = str->depth;
-    if (str->type == MPP_CFG_STR_FMT_TOML) {
-        depth = depth - 1;
-        depth = depth >= 0 ? depth : 0;
-    }
-
-    if (depth) {
+    if (str->depth) {
         char space[17] = "                ";
         rk_s32 i;
 
-        for (i = 0; i < depth; i++) {
+        for (i = 0; i < str->depth; i++) {
             rk_s32 indent_width = 4;
 
             if (write_byte_f(str, space, &indent_width))
@@ -1242,11 +1243,15 @@ static rk_s32 mpp_cfg_to_log(MppCfgIoImpl *impl, MppCfgStrBuf *str)
 
         len += mpp_cfg_format_leaf_value(impl, buf + len, total - len);
 
-        /* Add separator: " " for array elements, "\n" for others */
-        if (is_array_elem)
-            len += snprintf(buf + len, total - len, " ");
-        else
+        /* Add separator: " " for array elements (except last), "\n" for others */
+        if (is_array_elem) {
+            rk_s32 is_last = list_is_last(&impl->list, &impl->parent->child);
+
+            if (!is_last)
+                len += snprintf(buf + len, total - len, " ");
+        } else {
             len += snprintf(buf + len, total - len, "\n");
+        }
 
         return write_byte_f(str, buf, &len);
     }
@@ -1270,6 +1275,13 @@ static rk_s32 mpp_cfg_to_log(MppCfgIoImpl *impl, MppCfgStrBuf *str)
             for (i = 0; i < impl->array_size; i++) {
                 if (!impl->elems[i])
                     continue;
+
+                if (impl->elems[i]->type < MPP_CFG_TYPE_OBJECT) {
+                    if (i == 0)
+                        write_indent_f(str);
+                } else if (i > 0 && (str->offset == 0 || str->buf[str->offset - 1] != '\n')) {
+                    write_byte_f(str, "\n", &(rk_s32) {1});
+                }
 
                 ret = mpp_cfg_to_log(impl->elems[i], str);
                 if (ret)
@@ -1412,11 +1424,15 @@ static rk_s32 mpp_cfg_to_json(MppCfgIoImpl *impl, MppCfgStrBuf *str)
 
         len += mpp_cfg_format_leaf_value(impl, buf + len, total - len);
 
-        /* Add separator: ",\n" for non-array elements, ", " for array elements */
-        if (is_array_elem)
-            len += snprintf(buf + len, total - len, ", ");
-        else
+        /* Add separator: ",\n" for non-array elements, ", " for array elements (except last) */
+        if (is_array_elem) {
+            rk_s32 is_last = list_is_last(&impl->list, &impl->parent->child);
+
+            if (!is_last)
+                len += snprintf(buf + len, total - len, ", ");
+        } else {
             len += snprintf(buf + len, total - len, ",\n");
+        }
 
         return write_byte_f(str, buf, &len);
     }
@@ -1440,6 +1456,13 @@ static rk_s32 mpp_cfg_to_json(MppCfgIoImpl *impl, MppCfgStrBuf *str)
             for (i = 0; i < impl->array_size; i++) {
                 if (!impl->elems[i])
                     continue;
+
+                if (impl->elems[i]->type < MPP_CFG_TYPE_OBJECT) {
+                    if (i == 0)
+                        write_indent_f(str);
+                } else if (i > 0 && (str->offset == 0 || str->buf[str->offset - 1] != '\n')) {
+                    write_byte_f(str, "\n", &(rk_s32) {1});
+                }
 
                 ret = mpp_cfg_to_json(impl->elems[i], str);
                 if (ret)
@@ -1569,57 +1592,85 @@ static rk_s32 mpp_cfg_to_json(MppCfgIoImpl *impl, MppCfgStrBuf *str)
     return write_byte_f(str, buf, &len);
 }
 
-static rk_s32 mpp_toml_parent_is_array_table(MppCfgIoImpl *impl, MppCfgStrBuf *str)
+static rk_s32 mpp_toml_parent_is_array_table(MppCfgIoImpl *impl)
 {
-    return str->depth == 1 && impl->type == MPP_CFG_TYPE_OBJECT &&
-           !impl->name && impl->parent->type == MPP_CFG_TYPE_ARRAY;
+    return impl->type == MPP_CFG_TYPE_OBJECT &&
+           !impl->name && impl->parent && impl->parent->type == MPP_CFG_TYPE_ARRAY;
 }
 
-static rk_s32 mpp_toml_top(MppCfgIoImpl *impl, MppCfgStrBuf *str)
+static rk_s32 is_array_of_tables(MppCfgIoImpl *impl)
+{
+    if (impl->type != MPP_CFG_TYPE_ARRAY)
+        return 0;
+
+    if (!list_empty(&impl->child)) {
+        MppCfgIoImpl *first = list_first_entry(&impl->child,
+                                               MppCfgIoImpl, list);
+
+        return first && first->type == MPP_CFG_TYPE_OBJECT;
+    }
+
+    if (IS_VLA_COMPLEX_TYPE(impl->array_type) &&
+        impl->elems && impl->array_size > 0) {
+        MppCfgIoImpl *first = impl->elems[0];
+
+        return first && first->type == MPP_CFG_TYPE_OBJECT;
+    }
+
+    return 0;
+}
+
+static rk_s32 mpp_toml_header(MppCfgIoImpl *impl, MppCfgStrBuf *str)
 {
     char buf[256];
     rk_s32 len = 0;
     rk_s32 total = sizeof(buf) - 1;
+    MppCfgIoImpl *p = NULL;
 
-    if (impl->name && impl->type == MPP_CFG_TYPE_OBJECT)
-        len += snprintf(buf + len, total - len, "\n[%s]\n", impl->name);
-
-    return write_byte_f(str, buf, &len);
-}
-
-static rk_s32 mpp_toml_non_top(MppCfgIoImpl *impl, MppCfgStrBuf *str)
-{
-    char buf[256];
-    rk_s32 len = 0;
-    rk_s32 total = sizeof(buf) - 1;
-
-    if (impl->name)
-        len += snprintf(buf + len, total - len, "%s = ", impl->name);
-
-    if (list_empty(&impl->child)) {
-        len += snprintf(buf + len, total - len, "%s\n",
-                        impl->type == MPP_CFG_TYPE_OBJECT ? "{}" : "[]");
+    /* array-of-tables element — anonymous OBJECT child of ARRAY */
+    if (mpp_toml_parent_is_array_table(impl)) {
+        len += snprintf(buf + len, total - len, "\n[[%s]]\n",
+                        impl->parent->name);
         return write_byte_f(str, buf, &len);
     }
 
-    if (mpp_toml_parent_is_array_table(impl, str))
-        len += snprintf(buf + len, total - len, "\n[[%s]]\n", impl->parent->name);
-    else
-        len += snprintf(buf + len, total - len, "%c\n",
-                        impl->type == MPP_CFG_TYPE_OBJECT ? '{' : '[');
+    /* nested table — named OBJECT inside another OBJECT */
+    if (impl->type == MPP_CFG_TYPE_OBJECT && impl->parent &&
+        impl->parent->type == MPP_CFG_TYPE_OBJECT) {
+        rk_s32 depth_count = 0;
+        rk_s32 i;
+        MppCfgIoImpl *path[8];
+
+        p = impl;
+        while (p && p->type == MPP_CFG_TYPE_OBJECT && depth_count < 8) {
+            if (p->name)
+                path[depth_count++] = p;
+            p = p->parent;
+        }
+        /* Build dotted key from outermost named to this */
+        len += snprintf(buf + len, total - len, "\n[");
+        for (i = depth_count - 1; i >= 0; i--) {
+            if (i < depth_count - 1)
+                len += snprintf(buf + len, total - len, ".");
+            len += snprintf(buf + len, total - len, "%s", path[i]->name);
+        }
+        len += snprintf(buf + len, total - len, "]\n");
+        return write_byte_f(str, buf, &len);
+    }
+
+    if (impl->name && !is_array_of_tables(impl))
+        len += snprintf(buf + len, total - len, "%s = ", impl->name);
 
     return write_byte_f(str, buf, &len);
 }
 
-static rk_s32 mpp_cfg_to_toml(MppCfgIoImpl *impl, MppCfgStrBuf *str, rk_s32 first_time)
+static rk_s32 mpp_cfg_to_toml(MppCfgIoImpl *impl, MppCfgStrBuf *str)
 {
     MppCfgIoImpl *pos, *n;
     char buf[256];
     rk_s32 len = 0;
     rk_s32 total = sizeof(buf) - 1;
     rk_s32 ret = rk_ok;
-
-    write_indent_f(str);
 
     /* leaf node write once and finish */
     if (impl->type < MPP_CFG_TYPE_OBJECT) {
@@ -1674,136 +1725,151 @@ static rk_s32 mpp_cfg_to_toml(MppCfgIoImpl *impl, MppCfgStrBuf *str, rk_s32 firs
         } break;
         }
 
-        if (str->depth > 1)
-            len += snprintf(buf + len, total - len, ",\n");
-        else
-            len += snprintf(buf + len, total - len, "\n");
+        len += snprintf(buf + len, total - len, "\n");
 
         return write_byte_f(str, buf, &len);
     }
 
     cfg_io_dbg_to("depth %2d branch write name %s type %d\n", str->depth, impl->name, impl->type);
 
-    if (str->depth == 0) {
-        ret = mpp_toml_top(impl, str);
-    } else {
-        ret = mpp_toml_non_top(impl, str);
-    }
+    ret = mpp_toml_header(impl, str);
     if (ret)
         return ret;
 
-    if (list_empty(&impl->child)) {
-        if (IS_VLA_COMPLEX_TYPE(impl->array_type) && impl->elems) {
-            /* vla mode with element array (object/complex) */
-            rk_s32 i;
-
-            len += snprintf(buf + len, total - len, "[\n");
-            ret = write_byte_f(str, buf, &len);
-            if (ret)
-                return ret;
-
-            str->depth++;
-            for (i = 0; i < impl->array_size; i++) {
-                if (!impl->elems[i])
-                    continue;
-
-                write_indent_f(str);
-                ret = mpp_cfg_to_toml(impl->elems[i], str, 0);
-                if (ret)
-                    return ret;
-            }
-            str->depth--;
-
-            write_indent_f(str);
-            len = snprintf(buf, total, "]");
-        } else if (IS_VLA_SIMPLE_TYPE(impl->array_type)) {
-            /* vla mode with simple type and raw data value */
-            rk_s32 elem_size = sizeof_type(impl->array_type);
-            rk_s32 elem_count;
-            rk_s32 i;
-
-            if (elem_size <= 0 || !impl->raw) {
-                mpp_loge("invalid elem_size %d or invalid raw %p\n", elem_size, impl->raw);
-                return -1;
-            }
-
-            elem_count = impl->raw_count;
-
-            if (elem_count == 0) {
-                len += snprintf(buf + len, total - len, "[]");
-            } else {
-                len += snprintf(buf + len, total - len, "[\n");
-                ret = write_byte_f(str, buf, &len);
-                if (ret)
-                    return ret;
-
-                str->depth++;
-                for (i = 0; i < elem_count; i++) {
-                    if ((i & 0xf) == 0)
-                        write_indent_f(str);
-
-                    len = mpp_cfg_format_vla_elem(impl, i, buf, total);
-
-                    if (i == elem_count - 1)
-                        len += snprintf(buf + len, total - len, "\n");
-                    else if ((i & 0xf) == 0xf)
-                        len += snprintf(buf + len, total - len, ",\n");
-                    else
-                        len += snprintf(buf + len, total - len, ", ");
-
-                    ret = write_byte_f(str, buf, &len);
-                    if (ret)
-                        return ret;
-                }
-                str->depth--;
-
-                write_indent_f(str);
-                len = snprintf(buf, total, "]");
-            }
+    if (list_empty(&impl->child) && !impl->ptr) {
+        if (impl->type == MPP_CFG_TYPE_OBJECT) {
+            if (impl->name)
+                len += snprintf(buf + len, total - len, "\n[%s]\n", impl->name);
         } else {
-            len += snprintf(buf + len, total - len, "%s",
-                            impl->type == MPP_CFG_TYPE_OBJECT ? "{}" : "[]");
+            len += snprintf(buf + len, total - len, "[]\n");
         }
-
         return write_byte_f(str, buf, &len);
     }
 
-    if (!mpp_toml_parent_is_array_table(impl, str) && !first_time)
+    if (impl->type == MPP_CFG_TYPE_ARRAY) {
+        rk_s32 is_inline = 0;
+
+        if (IS_VLA_SIMPLE_TYPE(impl->array_type) && impl->raw) {
+            rk_s32 elem_size = sizeof_type(impl->array_type);
+            rk_s32 elem_count = impl->raw_count;
+            rk_s32 i;
+
+            if (elem_size <= 0) {
+                mpp_loge("invalid elem_size %d\n", elem_size);
+                return -1;
+            }
+
+            len += snprintf(buf + len, total - len, "[");
+            for (i = 0; i < elem_count; i++) {
+                if (i > 0)
+                    len += snprintf(buf + len, total - len, ", ");
+                len += mpp_cfg_format_vla_elem(impl, i, buf + len, total - len);
+            }
+            len += snprintf(buf + len, total - len, "]\n");
+            is_inline = 1;
+        } else if (IS_VLA_COMPLEX_TYPE(impl->array_type) && impl->elems &&
+                   impl->array_size > 0) {
+            MppCfgIoImpl *first = impl->elems[0];
+
+            if (first && first->type < MPP_CFG_TYPE_OBJECT) {
+                rk_s32 i;
+
+                len += snprintf(buf + len, total - len, "[");
+                for (i = 0; i < impl->array_size; i++) {
+                    MppCfgIoImpl *elem = impl->elems[i];
+
+                    if (!elem)
+                        continue;
+                    if (i > 0)
+                        len += snprintf(buf + len, total - len, ", ");
+                    len += mpp_cfg_format_leaf_value(elem, buf + len, total - len);
+                }
+                len += snprintf(buf + len, total - len, "]\n");
+                is_inline = 1;
+            }
+        } else if (!list_empty(&impl->child)) {
+            MppCfgIoImpl *first = list_first_entry(&impl->child, MppCfgIoImpl, list);
+
+            if (first && first->type < MPP_CFG_TYPE_OBJECT) {
+                rk_s32 i = 0;
+
+                len += snprintf(buf + len, total - len, "[");
+                list_for_each_entry(pos, &impl->child, MppCfgIoImpl, list) {
+                    if (i > 0)
+                        len += snprintf(buf + len, total - len, ", ");
+                    len += mpp_cfg_format_leaf_value(pos, buf + len, total - len);
+                    i++;
+                }
+                len += snprintf(buf + len, total - len, "]\n");
+                is_inline = 1;
+            }
+        }
+
+        if (is_inline)
+            return write_byte_f(str, buf, &len);
+    }
+
+    /* VLA complex with object/array elements: multi-line array */
+    if (IS_VLA_COMPLEX_TYPE(impl->array_type) && impl->elems) {
+        rk_s32 i;
+        rk_s32 saved_depth;
+
+        len += snprintf(buf + len, total - len, "[\n");
+        ret = write_byte_f(str, buf, &len);
+        if (ret)
+            return ret;
+
+        saved_depth = str->depth;
         str->depth++;
+
+        for (i = 0; i < impl->array_size; i++) {
+            if (!impl->elems[i])
+                continue;
+
+            write_indent_f(str);
+            ret = mpp_cfg_to_toml(impl->elems[i], str);
+            if (ret)
+                return ret;
+
+            if (i < impl->array_size - 1 && str->offset > 0 &&
+                str->buf[str->offset - 1] == '\n') {
+                str->offset--;
+                write_byte_f(str, ",\n", &(rk_s32) {2});
+            }
+        }
+
+        str->depth = saved_depth;
+        write_indent_f(str);
+        len += snprintf(buf + len, total - len, "]\n");
+        return write_byte_f(str, buf, &len);
+    }
 
     list_for_each_entry_safe(pos, n, &impl->child, MppCfgIoImpl, list) {
         cfg_io_dbg_to("depth %2d child write name %s type %d\n", str->depth, pos->name, pos->type);
-        ret = mpp_cfg_to_toml(pos, str, 0);
+        ret = mpp_cfg_to_toml(pos, str);
         if (ret)
             break;
-    }
 
-    if (str->depth > 1)
-        revert_comma_f(str);
-
-    if (!mpp_toml_parent_is_array_table(impl, str) && !first_time)
-        str->depth--;
-
-    write_indent_f(str);
-
-    if (str->depth > 0 && !mpp_toml_parent_is_array_table(impl, str)) {
-        if (str->depth == 1)
-            len += snprintf(buf + len, total - len, "%c\n",
-                            impl->type == MPP_CFG_TYPE_OBJECT ? '}' : ']');
-        else
-            len += snprintf(buf + len, total - len, "%c,\n",
-                            impl->type == MPP_CFG_TYPE_OBJECT ? '}' : ']');
+        if (impl->type == MPP_CFG_TYPE_ARRAY &&
+            pos->type >= MPP_CFG_TYPE_OBJECT &&
+            !mpp_toml_parent_is_array_table(pos) &&
+            !list_is_last(&pos->list, &impl->child))
+            write_byte_f(str, ",\n", &(rk_s32) {2});
     }
 
     return write_byte_f(str, buf, &len);
 }
 
-static rk_s32 parse_number(MppCfgStrBuf *str, MppCfgType *type, MppCfgVal *val)
+static rk_s32 parse_number(MppCfgStrBuf *str, MppCfgType *type, MppCfgVal *val, rk_s32 peek)
 {
     char *buf = NULL;
     char tmp[64];
     long double value;
     rk_u32 i;
+    rk_u32 str_offset;
+
+    if (peek)
+        str_offset = str->offset;
 
     for (i = 0; i < sizeof(tmp) - 1; i++) {
         buf = show_byte_f(str, 0);
@@ -1828,6 +1894,9 @@ static rk_s32 parse_number(MppCfgStrBuf *str, MppCfgType *type, MppCfgVal *val)
     }
 
 done:
+    if (peek)
+        str->offset = str_offset;
+
     if (!i)
         return rk_nok;
 
@@ -1913,6 +1982,330 @@ static rk_s32 parse_log_string(MppCfgStrBuf *str, char **name, rk_s32 *len, rk_u
     return rk_ok;
 }
 
+static rk_s32 store_vla_simple(MppCfgIoImpl *parent, rk_s32 idx, void *val)
+{
+    rk_s32 esz = sizeof_type(parent->array_type);
+
+    if (!parent->raw) {
+        rk_s32 init_cnt = VLA_INIT_CNT;
+        void *raw_buf = NULL;
+
+        raw_buf = mpp_calloc_size(void, init_cnt * esz);
+        if (!raw_buf) {
+            mpp_loge_f("vla %-16s calloc raw_buf failed\n", parent->name);
+            return rk_nok;
+        }
+
+        parent->raw = raw_buf;
+        parent->raw_size = init_cnt * esz;
+        parent->raw_count = init_cnt;
+        parent->vla.vla.type = ENTRY_TYPE_VLA_INFO;
+        parent->vla.vla.elem_size = esz;
+        parent->vla.vla.elem_count = init_cnt;
+        parent->vla.vla.flex_count = 1;
+        memcpy(raw_buf, val, esz);
+    } else {
+        char *ptr = parent->raw;
+
+        if (idx >= parent->raw_count) {
+            rk_s32 new_cnt = parent->raw_count * 2;
+            rk_s32 new_size = new_cnt * esz;
+
+            if ((new_cnt & ~0xffff) || (new_size & ~0xffff)) {
+                mpp_loge_f("vla %-16s raw_count %d size %d exceeds 16bit limit\n",
+                           parent->name, new_cnt, new_size);
+                return rk_nok;
+            }
+
+            ptr = mpp_realloc_size(ptr, char, new_size);
+            if (!ptr) {
+                mpp_loge_f("vla %-16s realloc raw_buf to %d bytes failed\n",
+                           parent->name, new_size);
+                return rk_nok;
+            }
+
+            memset(ptr + parent->raw_size, 0, new_size - parent->raw_size);
+            parent->raw = (void *)ptr;
+            parent->raw_count = new_cnt;
+            parent->raw_size = new_size;
+        }
+
+        memcpy(ptr + idx * esz, val, esz);
+    }
+
+    return rk_ok;
+}
+
+static rk_s32 store_vla_complex(MppCfgIoImpl *parent, MppCfgIoImpl *elem)
+{
+    rk_s32 idx = parent->array_count;
+
+    if (!parent->elems) {
+        rk_s32 init_cnt = VLA_INIT_CNT;
+        void **elems_buf = NULL;
+
+        elems_buf = mpp_calloc_size(void *, init_cnt);
+        if (!elems_buf) {
+            mpp_loge_f("vla %-16s calloc elems_buf failed\n", parent->name);
+            return rk_nok;
+        }
+
+        parent->elems = (MppCfgIoImpl **)elems_buf;
+        parent->array_size = init_cnt;
+        parent->vla.vla.type = ENTRY_TYPE_VLA_INFO;
+        parent->vla.vla.elem_size = sizeof(MppCfgIoImpl *);
+        parent->vla.vla.elem_count = init_cnt;
+        parent->vla.vla.flex_count = 1;
+    } else {
+        if (idx >= parent->array_size) {
+            MppCfgIoImpl **ptr = parent->elems;
+            rk_s32 new_cnt = parent->array_size * 2;
+            rk_s32 new_size = new_cnt * sizeof(MppCfgIoImpl *);
+
+            if ((new_cnt & ~0xffff) || (new_size & ~0xffff)) {
+                mpp_loge_f("vla %-16s elem_count %d size %d exceeds 16bit limit\n",
+                           parent->name, new_cnt, new_size);
+                return rk_nok;
+            }
+
+            ptr = mpp_realloc_size(ptr, MppCfgIoImpl *, new_size);
+            if (!ptr) {
+                mpp_loge_f("vla %-16s realloc elems_buf to %d bytes failed\n",
+                           parent->name, new_size);
+                return rk_nok;
+            }
+
+            memset(&ptr[parent->array_size], 0,
+                   (new_cnt - parent->array_size) * sizeof(MppCfgIoImpl *));
+            parent->elems = ptr;
+            parent->array_size = new_cnt;
+        }
+    }
+
+    parent->elems[idx] = elem;
+    list_del_init(&elem->list);
+
+    return rk_ok;
+}
+
+static void finish_vla_trim(MppCfgIoImpl *parent)
+{
+    rk_s32 count = parent->array_count;
+
+    if (IS_VLA_SIMPLE_TYPE(parent->array_type)) {
+        parent->raw_count = count;
+        parent->raw_size = count * sizeof_type(parent->array_type);
+    } else {
+        parent->array_size = count;
+    }
+
+    parent->vla.vla.elem_count = count;
+}
+
+static rk_s32 peek_vla_is_simple(MppCfgStrBuf *str)
+{
+    char *buf = show_byte_f(str, 0);
+
+    if (!buf)
+        return 0;
+
+    switch (buf[0]) {
+    case 't':
+    case 'f':
+    case '-':
+    case '0' ... '9': {
+        return 1;
+    } break;
+    default: {
+        return 0;
+    } break;
+    }
+}
+
+static rk_s32 parse_vla_number_and_bool(MppCfgStrBuf *str, MppCfgType *type,
+                                        MppCfgVal *val, rk_s32 peek)
+{
+    char *buf = NULL;
+    char *b = NULL;
+    rk_s32 ret;
+
+    buf = show_byte_f(str, 0);
+    if (!buf)
+        goto failed;
+
+    if (buf[0] == '-' || (buf[0] >= '0' && buf[0] <= '9')) {
+        MppCfgType orig_type;
+
+        ret = parse_number(str, &orig_type, val, peek);
+        if (ret)
+            goto failed;
+
+        /* unify integers as s64 and floats as f64, avoid element width mismatch within array */
+        if (orig_type == MPP_CFG_TYPE_f32 || orig_type == MPP_CFG_TYPE_f64) {
+            *type = MPP_CFG_TYPE_f64;
+            val->f64 = (double)(orig_type == MPP_CFG_TYPE_f32 ? val->f32 : val->f64);
+        } else {
+            *type = MPP_CFG_TYPE_s64;
+            switch (orig_type) {
+            case MPP_CFG_TYPE_s32: {
+                val->s64 = val->s32;
+            } break;
+            case MPP_CFG_TYPE_u32: {
+                val->s64 = (rk_s64)val->u32;
+            } break;
+            case MPP_CFG_TYPE_u64: {
+                val->s64 = (rk_s64)val->u64;
+            } break;
+            case MPP_CFG_TYPE_s64:
+            default: {
+            } break;
+            }
+        }
+        return ret;
+    }
+
+
+    if (buf[0] == 't') {
+        b = test_byte_f(str, 4);
+        if (b && !strncmp(b, "true", 4)) {
+            val->b1 = 1;
+            *type = MPP_CFG_TYPE_BOOL;
+            if (!peek)
+                skip_byte_f(str, 4);
+            return rk_ok;
+        }
+        goto failed;
+    }
+
+    if (buf[0] == 'f') {
+        b = test_byte_f(str, 5);
+        if (b && !strncmp(b, "false", 5)) {
+            val->b1 = 0;
+            *type = MPP_CFG_TYPE_BOOL;
+            if (!peek)
+                skip_byte_f(str, 5);
+            return rk_ok;
+        }
+        goto failed;
+    }
+
+failed:
+    mpp_loge_f("parse number/bool failed at offset %d char '%c'.\n",
+               str->offset, buf ? buf[0] : '\0');
+
+    return rk_nok;
+}
+
+typedef rk_s32 (*ParseVlaValueFunc)(MppCfgIoImpl *, const char *, MppCfgStrBuf *);
+
+static rk_s32 parse_vla_type(MppCfgIoImpl *parent, MppCfgStrBuf *str,
+                             ParseVlaValueFunc parse_val)
+{
+    rk_s32 ret;
+
+    if (peek_vla_is_simple(str)) {
+        MppCfgVal val;
+        MppCfgType type;
+
+        ret = parse_vla_number_and_bool(str, &type, &val, 1);
+        if (ret) {
+            mpp_loge_f("vla %-16s failed to peek simple type for array\n",
+                       parent->name);
+            return ret;
+        }
+
+        parent->array_type = type;
+    } else {
+        MppCfgIoImpl *first_child = NULL;
+
+        ret = parse_val(parent, NULL, str);
+        if (ret) {
+            mpp_loge_f("vla %-16s failed to parse first complex element\n",
+                       parent->name);
+            return ret;
+        }
+
+        first_child = list_last_entry(&parent->child, MppCfgIoImpl, list);
+
+        if (IS_VLA_COMPLEX_TYPE(first_child->type)) {
+            parent->array_type = first_child->type;
+        } else {
+            mpp_loge_f("vla %-16s first element type %s is not a valid VLA element type\n",
+                       parent->name, strof_type(first_child->type));
+            return rk_nok;
+        }
+    }
+
+    return rk_ok;
+}
+
+static rk_s32 parse_vla_elem(MppCfgIoImpl *parent, MppCfgStrBuf *str,
+                             ParseVlaValueFunc parse_val)
+{
+    rk_s32 idx = parent->array_count;
+    rk_s32 ret;
+
+    if (parent->array_type == MPP_CFG_TYPE_INVALID) {
+        /* first element: determine mode by peeking type */
+        ret = parse_vla_type(parent, str, parse_val);
+        if (ret) {
+            mpp_loge_f("vla %-16s failed to detect array element type\n",
+                       parent->name);
+            return -10;
+        }
+    }
+
+    if (IS_VLA_SIMPLE_TYPE(parent->array_type)) {
+        /* simple mode: all elements must be simple values */
+        MppCfgVal val;
+        MppCfgType num_type;
+
+        ret = parse_vla_number_and_bool(str, &num_type, &val, 0);
+        if (ret) {
+            mpp_loge_f("vla %-16s element %d: expected simple type %s, got non-simple\n",
+                       parent->name, idx, strof_type(parent->array_type));
+            return -10;
+        }
+        if (num_type != parent->array_type) {
+            mpp_loge_f("vla %-16s element %d: type mismatch expected %s got %s\n",
+                       parent->name, idx, strof_type(parent->array_type), strof_type(num_type));
+            return -10;
+        }
+        ret = store_vla_simple(parent, idx, &val);
+        if (ret) {
+            mpp_loge_f("vla %-16s element %d: failed to store simple value\n",
+                       parent->name, idx);
+            return -10;
+        }
+    } else {
+        /* complex mode: all elements must be complex values of same type */
+        MppCfgIoImpl *elem = NULL;
+
+        if (parent->elems) {
+            ret = parse_val(parent, NULL, str);
+            if (ret)
+                return ret;
+        }
+
+        elem = list_last_entry(&parent->child, MppCfgIoImpl, list);
+        if (elem->type != parent->array_type) {
+            mpp_loge_f("vla %-16s element %d: type mismatch expected %s got %s\n",
+                       parent->name, idx, strof_type(parent->array_type), strof_type(elem->type));
+            return -10;
+        }
+        ret = store_vla_complex(parent, elem);
+        if (ret) {
+            mpp_loge_f("vla %-16s element %d: failed to store complex value\n",
+                       parent->name, idx);
+            return -10;
+        }
+    }
+
+    parent->array_count++;
+
+    return rk_ok;
+}
+
 static rk_s32 parse_log_value(MppCfgIoImpl *parent, const char *name, MppCfgStrBuf *str);
 
 static rk_s32 parse_log_array(MppCfgIoImpl *obj, MppCfgStrBuf *str)
@@ -1921,7 +2314,6 @@ static rk_s32 parse_log_array(MppCfgIoImpl *obj, MppCfgStrBuf *str)
     char *buf = NULL;
     rk_s32 old = str->offset;
     rk_s32 ret = rk_nok;
-    char arr_name[64] = {0};
 
     if (str->depth >= MAX_CFG_DEPTH) {
         mpp_loge_f("depth %2d reached max\n", MAX_CFG_DEPTH);
@@ -1968,31 +2360,28 @@ static rk_s32 parse_log_array(MppCfgIoImpl *obj, MppCfgStrBuf *str)
             goto failed;
         }
 
-        snprintf(arr_name, sizeof(arr_name), "array_%d", parent->array_count);
-        /* parse value */
-        ret = parse_log_value(parent, arr_name, str);
-        if (ret) {
-            ret = -6;
+        ret = parse_vla_elem(parent, str, parse_log_value);
+        if (ret < 0)
             goto failed;
-        }
 
         buf = skip_ws_f(str);
         if (!buf) {
             ret = -7;
             goto failed;
         }
-        parent->array_count++;
 
         if (buf[0] == ']')
             break;
     } while (1);
 
+    buf = skip_ws_f(str);
     if (!buf || buf[0] != ']') {
         ret = -9;
         goto failed;
     }
 
     skip_byte_f(str, 1);
+    finish_vla_trim(parent);
 
     cfg_io_dbg_from("depth %2d offset %d -> %d array parse success\n",
                     str->depth, old, str->offset);
@@ -2081,7 +2470,7 @@ static rk_s32 parse_log_value(MppCfgIoImpl *parent, const char *name, MppCfgStrB
         cfg_io_dbg_from("depth %2d offset %d: get value number start\n",
                         str->depth, str->offset);
 
-        ret = parse_number(str, &type, &val);
+        ret = parse_number(str, &type, &val, 0);
         if (ret)
             return ret;
 
@@ -2512,7 +2901,6 @@ static rk_s32 parse_json_array(MppCfgIoImpl *obj, MppCfgStrBuf *str)
     char *buf = NULL;
     rk_s32 old = str->offset;
     rk_s32 ret = rk_nok;
-    char arr_name[64] = {0};
 
     if (str->depth >= MAX_CFG_DEPTH) {
         mpp_loge_f("depth %2d reached max\n", MAX_CFG_DEPTH);
@@ -2559,14 +2947,9 @@ static rk_s32 parse_json_array(MppCfgIoImpl *obj, MppCfgStrBuf *str)
             goto failed;
         }
 
-        snprintf(arr_name, sizeof(arr_name), "array_%d", parent->array_count);
-
-        /* parse value */
-        ret = parse_json_value(parent, arr_name, str);
-        if (ret) {
-            ret = -6;
+        ret = parse_vla_elem(parent, str, parse_json_value);
+        if (ret < 0)
             goto failed;
-        }
 
         buf = skip_ws_f(str);
         if (!buf) {
@@ -2586,7 +2969,6 @@ static rk_s32 parse_json_array(MppCfgIoImpl *obj, MppCfgStrBuf *str)
                 break;
 
             cfg_io_dbg_from("depth %2d offset %d: get next array\n", str->depth, str->offset);
-            parent->array_count++;
             continue;
         }
         break;
@@ -2599,6 +2981,7 @@ static rk_s32 parse_json_array(MppCfgIoImpl *obj, MppCfgStrBuf *str)
     }
 
     skip_byte_f(str, 1);
+    finish_vla_trim(parent);
 
     cfg_io_dbg_from("depth %2d offset %d -> %d array parse success\n",
                     str->depth, old, str->offset);
@@ -2685,7 +3068,7 @@ static rk_s32 parse_json_value(MppCfgIoImpl *parent, const char *name, MppCfgStr
         cfg_io_dbg_from("depth %2d offset %d: get value number start\n",
                         str->depth, str->offset);
 
-        ret = parse_number(str, &type, &val);
+        ret = parse_number(str, &type, &val, 0);
         if (ret)
             return ret;
 
@@ -2944,7 +3327,6 @@ static rk_s32 parse_toml_array(MppCfgIoImpl *obj, MppCfgStrBuf *str)
     char *buf = NULL;
     rk_s32 old = str->offset;
     rk_s32 ret = rk_nok;
-    char arr_name[64] = {0};
 
     if (str->depth >= MAX_CFG_DEPTH) {
         mpp_loge_f("depth %2d reached max\n", MAX_CFG_DEPTH);
@@ -2990,13 +3372,9 @@ static rk_s32 parse_toml_array(MppCfgIoImpl *obj, MppCfgStrBuf *str)
             goto failed;
         }
 
-        snprintf(arr_name, sizeof(arr_name), "array_%d", parent->array_count);
-        /* parse value */
-        ret = parse_toml_value(parent, arr_name, str);
-        if (ret) {
-            ret = -65;
+        ret = parse_vla_elem(parent, str, parse_toml_value);
+        if (ret < 0)
             goto failed;
-        }
 
         buf = skip_ws_f(str);
         if (!buf) {
@@ -3016,18 +3394,19 @@ static rk_s32 parse_toml_array(MppCfgIoImpl *obj, MppCfgStrBuf *str)
                 break;
 
             cfg_io_dbg_from("depth %2d offset %d: get next array\n", str->depth, str->offset);
-            parent->array_count++;
             continue;
         }
         break;
     } while (1);
 
+    buf = skip_ws_f(str);
     if (!buf || buf[0] != ']') {
         ret = -68;
         goto failed;
     }
 
     skip_byte_f(str, 1);
+    finish_vla_trim(parent);
 
     cfg_io_dbg_from("depth %2d offset %d -> %d array parse success\n",
                     str->depth, old, str->offset);
@@ -3141,7 +3520,7 @@ static rk_s32 parse_toml_value(MppCfgIoImpl *parent, const char *name, MppCfgStr
         cfg_io_dbg_from("depth %2d offset %d: get value number start\n",
                         str->depth, str->offset);
 
-        ret = parse_number(str, &type, &val);
+        ret = parse_number(str, &type, &val, 0);
         if (ret)
             return ret;
 
@@ -3694,7 +4073,7 @@ rk_s32 mpp_cfg_to_string(MppCfgObj obj, MppCfgStrFmt fmt, char **buf)
         ret = mpp_cfg_to_json(impl, &str);
     } break;
     case MPP_CFG_STR_FMT_TOML : {
-        ret = mpp_cfg_to_toml(impl, &str, 1);
+        ret = mpp_cfg_to_toml(impl, &str);
     } break;
     default : {
         mpp_loge_f("obj %-16s invalid format %d\n", impl->name, fmt);
@@ -3795,16 +4174,23 @@ static rk_s32 vla_read_count(void *st, struct KmppEntryVLAInfo *vla)
     return (rk_s32)vla->elem_count;
 }
 
-static rk_u32 vla_read_base(void *st, struct KmppEntryVLAInfo *vla)
+static rk_u32 vla_read_base(void *st, MppCfgIoImpl *type, KmppEntry *tbl)
 {
-    if (vla->flex_base) {
-        if (vla->base_off & 0x3) {
-            mpp_loge_f("vla base_off %d not aligned\n", vla->base_off);
-            return 0;
+    if (type && type->vla.vla.type == ENTRY_TYPE_VLA_INFO) {
+        struct KmppEntryVLAInfo *vla = &type->vla.vla;
+
+        if (vla->flex_base) {
+            if (vla->base_off & 0x3) {
+                mpp_loge_f("vla base_off %d not aligned\n", vla->base_off);
+                return 0;
+            }
+            return *(rk_u32 *)((rk_u8 *)st + vla->base_off);
         }
-        return *(rk_u32 *)((rk_u8 *)st + vla->base_off);
+
+        return vla->base_off;
     }
-    return 0;
+
+    return tbl ? tbl->tbl.elem_offset : 0;
 }
 
 static void vla_write_count(void *st, struct KmppEntryVLAInfo *vla, rk_s32 val)
@@ -3869,11 +4255,92 @@ static void write_struct(MppCfgIoImpl *obj, MppTrie trie, MppCfgStrBuf *str,
     }
 
     /* VLA array: copy raw data from VLA buffer back to struct */
-    if (obj->type == MPP_CFG_TYPE_ARRAY && IS_VLA_SIMPLE_TYPE(obj->array_type) &&
-        tbl->tbl.elem_type == ELEM_TYPE_arr) {
-        rk_s32 cpy_size = MPP_MIN((rk_s32)tbl->tbl.elem_size, (rk_s32)obj->raw_size);
+    if (obj->type == MPP_CFG_TYPE_ARRAY &&
+        (IS_VLA_SIMPLE_TYPE(obj->array_type) || tbl->tbl.elem_type == ELEM_TYPE_arr)) {
+        rk_u32 base = vla_read_base(st, type, tbl);
+        rk_s32 src_esz = sizeof_type(obj->array_type);
+        rk_s32 dst_esz = (type && type->vla.vla.type == ENTRY_TYPE_VLA_INFO) ?
+                         (rk_s32)type->vla.vla.elem_size : src_esz;
+        rk_s32 is_vla = (type && type->vla.vla.type == ENTRY_TYPE_VLA_INFO);
 
-        memcpy((rk_u8 *)st + tbl->tbl.elem_offset, obj->raw, cpy_size);
+        if (src_esz == dst_esz) {
+            rk_s32 dst_total = is_vla ?
+                               (rk_s32)type->vla.vla.elem_count * type->vla.vla.elem_size :
+                               (rk_s32)tbl->tbl.elem_size;
+            rk_s32 cpy_size = MPP_MIN(dst_total, (rk_s32)obj->raw_size);
+
+            memcpy((rk_u8 *)st + base, obj->raw, cpy_size);
+            if (!is_vla && tbl->tbl.flag_offset && cpy_size > 0)
+                mpp_cfg_set_flag(st, tbl->tbl.flag_offset);
+        } else {
+            rk_s32 src_cnt = obj->raw_count;
+            rk_s32 dst_cnt = (rk_s32)type->vla.vla.elem_count;
+            rk_s32 cnt = MPP_MIN(src_cnt, dst_cnt);
+            rk_s32 i;
+
+            cfg_io_dbg_show("VLA elem size mismatch: src cnt %d size %d, dst cnt %d size %d.\n",
+                            src_cnt, src_esz, dst_cnt, dst_esz);
+
+            for (i = 0; i < cnt; i++) {
+                void *src = (rk_u8 *)obj->raw + i * src_esz;
+                void *dst = (rk_u8 *)st + base + i * dst_esz;
+
+                if (!src || !dst) {
+                    mpp_loge_f("VLA elem index %d : src or dst is NULL\n", i);
+                    break;
+                }
+
+                switch (type->array_type) {
+                case MPP_CFG_TYPE_s8: {
+                    rk_s8 v = (rk_s8) * (rk_s64 *)src;
+                    *(rk_s8 *)dst = v;
+                } break;
+                case MPP_CFG_TYPE_u8: {
+                    rk_u8 v = (rk_u8) * (rk_s64 *)src;
+                    *(rk_u8 *)dst = v;
+                } break;
+                case MPP_CFG_TYPE_s16: {
+                    rk_s16 v = (rk_s16) * (rk_s64 *)src;
+                    *(rk_s16 *)dst = v;
+                } break;
+                case MPP_CFG_TYPE_u16: {
+                    rk_u16 v = (rk_u16) * (rk_s64 *)src;
+                    *(rk_u16 *)dst = v;
+                } break;
+                case MPP_CFG_TYPE_s32: {
+                    rk_s32 v = (rk_s32) * (rk_s64 *)src;
+                    *(rk_s32 *)dst = v;
+                } break;
+                case MPP_CFG_TYPE_u32: {
+                    rk_u32 v = (rk_u32) * (rk_s64 *)src;
+                    *(rk_u32 *)dst = v;
+                } break;
+                case MPP_CFG_TYPE_s64: {
+                    *(rk_s64 *)dst = *(rk_s64 *)src;
+                } break;
+                case MPP_CFG_TYPE_u64: {
+                    rk_u64 v = (rk_u64) * (rk_s64 *)src;
+                    *(rk_u64 *)dst = v;
+                } break;
+                case MPP_CFG_TYPE_f32: {
+                    float v = (float) * (double *)src;
+                    *(float *)dst = v;
+                } break;
+                case MPP_CFG_TYPE_f64: {
+                    *(double *)dst = *(double *)src;
+                } break;
+                default: {
+                    mpp_loge_f("VLA unsupported target type %s for src %s\n",
+                               strof_type(type->array_type),
+                               strof_type(obj->array_type));
+                    return;
+                } break;
+                }
+            }
+            /* Set update flag for VLA array field */
+            if (tbl->tbl.flag_offset && cnt > 0)
+                mpp_cfg_set_flag(st, tbl->tbl.flag_offset);
+        }
     }
 
     /* Non-VLA array from parsed string: write child elements to struct */
@@ -3907,12 +4374,18 @@ static void write_struct(MppCfgIoImpl *obj, MppTrie trie, MppCfgStrBuf *str,
             }
             idx++;
         }
+        /* Set update flag for non-VLA array field */
+        if (tbl->tbl.flag_offset && idx > 0)
+            mpp_cfg_set_flag(st, tbl->tbl.flag_offset);
     }
 
-    /* Complex VLA array: write elements back to struct */
+    /* Complex VLA array: write elements back to struct.
+     * Use type's vla info (cfg_root definition) — obj->vla.vla is only set by
+     * read_struct (from_struct path); nodes built by from_json leave it zero,
+     * causing vla_read_base to read the wrong field as base. */
     if (obj->type == MPP_CFG_TYPE_ARRAY && IS_VLA_COMPLEX_TYPE(obj->array_type) &&
-        obj->vla.vla.type == ENTRY_TYPE_VLA_INFO && obj->elems) {
-        struct KmppEntryVLAInfo *vla = &obj->vla.vla;
+        type && type->vla.vla.type == ENTRY_TYPE_VLA_INFO && obj->elems) {
+        struct KmppEntryVLAInfo *vla = &type->vla.vla;
         rk_s32 cnt;
         rk_u32 base;
         rk_s32 idx;
@@ -3926,7 +4399,7 @@ static void write_struct(MppCfgIoImpl *obj, MppTrie trie, MppCfgStrBuf *str,
             if (!elem)
                 continue;
 
-            base = vla_read_base(st, vla);
+            base = vla_read_base(st, type, tbl);
 
             if (vla_elem_off_overflow(base, idx, vla->elem_size)) {
                 mpp_loge_f("vla elem offset overflow base %u idx %d esz %d\n",
@@ -3955,7 +4428,7 @@ static void write_struct(MppCfgIoImpl *obj, MppTrie trie, MppCfgStrBuf *str,
         rk_u32 base;
         rk_s32 idx = 0;
 
-        base = vla_read_base(st, vla);
+        base = vla_read_base(st, type, tbl);
 
         list_for_each_entry_safe(pos, n, &obj->child, MppCfgIoImpl, list) {
             void *elem_st;
@@ -4172,7 +4645,7 @@ static MppCfgObj read_struct(MppCfgIoImpl *impl, MppCfgObj parent, void *st)
 
         cnt = vla_read_count(st, vla);
 
-        base = vla_read_base(st, vla);
+        base = vla_read_base(st, impl, entry);
 
         if (cnt <= 0 || cnt > 16384) {
             mpp_loge_f("vla %-16s invalid count %d\n", impl->name, cnt);

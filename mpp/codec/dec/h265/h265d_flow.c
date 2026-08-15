@@ -231,10 +231,6 @@ static RK_S32 h265d_slice_head(H265dPrs *p)
         READ_ONEBIT(gb, &val_u32);
     }
 
-    if (IS_IRAP(type) && p->miss_ref_flag && slice->first_slice_in_pic_flag) {
-        p->max_ra     = INT_MAX;
-        p->miss_ref_flag = 0;
-    }
     READ_UE(gb, &pps_id);
 
     if (pps_id >= MAX_PPS_COUNT || !p->pps_list[pps_id]) {
@@ -242,9 +238,10 @@ static RK_S32 h265d_slice_head(H265dPrs *p)
         return MPP_ERR_STREAM;
     } else {
         slice->pps_id = pps_id;
-        if (pps_id != p->pre_pps_id) {
+        /* Check if PPS changed using bitmap (mirrors sps_update_mask pattern) */
+        if (MPP_GET_BIT64(p->pps_update_mask, pps_id)) {
             p->ps_need_upate = 1;
-            p->pre_pps_id = pps_id;
+            MPP_CLR_BIT64(p->pps_update_mask, pps_id);
         }
     }
 
@@ -1618,8 +1615,6 @@ RK_S32 h265d_parser_init(H265dParser *s, H265dCtx* ctx)
 
     if (MPP_OK != mpp_packet_init(&p->input_packet, (void*)buf, size))
         return MPP_ERR_NOMEM;
-
-    p->pre_pps_id = -1;
 
     /* Initialize update bitmasks */
     p->sps_update_mask = 0;

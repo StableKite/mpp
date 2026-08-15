@@ -90,9 +90,9 @@ MPP_RET hal_dbg_init(HalDbgCtx **ctx, const char *dump_sub_dir)
     return MPP_OK;
 }
 
-MPP_RET hal_dbg_deinit(HalDbgCtx *ctx)
+MPP_RET hal_dbg_deinit(HalDbgCtx **ctx)
 {
-    MPP_FREE(ctx);
+    MPP_FREE(*ctx);
 
     return MPP_OK;
 }
@@ -195,7 +195,7 @@ MPP_RET hal_dbg_dump_data(HalDbgCtx *ctx, char *fname, void *data,
             snprintf(load_fname_path, sizeof(load_fname_path), "%s_cmd", fname);
         }
 
-        hal_dbg_load_data(ctx, load_fname_path, buf_p, data_bit_size / 8);
+        hal_dbg_load_data(ctx, load_fname_path, buf_p, data_bit_size / 8, mode);
     }
 
     if (0 == hal_dbg_flag_en(ctx, HAL_DBG_DUMP))
@@ -279,6 +279,44 @@ MPP_RET hal_dbg_dump_data(HalDbgCtx *ctx, char *fname, void *data,
     return MPP_OK;
 }
 
+MPP_RET hal_dbg_dump_raw_data(HalDbgCtx *ctx, const char *fname, void *data,
+                              size_t byte_sz, const char *mode)
+{
+    char dump_fname_path[HAL_DBG_PATH_MAX_LEN * 2];
+    FILE *dump_fp = NULL;
+    size_t written;
+
+    if (0 == hal_dbg_flag_en(ctx, HAL_DBG_DUMP))
+        return MPP_OK;
+
+    if (ctx->target_frm_idx != HAL_DBG_TGT_FRM_NONE
+        && ctx->cur_frm_idx != ctx->target_frm_idx)
+        return MPP_OK;
+
+    if (NULL == data || 0 == byte_sz) {
+        mpp_loge_f("invalid args: data=%p byte_sz=%zu\n", data, byte_sz);
+        return MPP_NOK;
+    }
+
+    snprintf(dump_fname_path, sizeof(dump_fname_path), "%s/%s", ctx->dump_cur_dir, fname);
+    dump_fp = fopen(dump_fname_path, mode);
+    if (!dump_fp) {
+        mpp_loge_f("open file: %s failed!\n", dump_fname_path);
+        return MPP_NOK;
+    }
+
+    hal_dbg_detail("dump binary: %s byte_sz=%zu mode=%s\n",
+                   dump_fname_path, byte_sz, mode);
+
+    written = fwrite(data, 1, byte_sz, dump_fp);
+    if (written != byte_sz)
+        mpp_loge_f("short write %zu/%zu to %s\n", written, byte_sz, dump_fname_path);
+
+    fclose(dump_fp);
+
+    return MPP_OK;
+}
+
 static inline RK_U8 hal_dbg_hex_to_val(char c)
 {
     if (c >= '0' && c <= '9')
@@ -291,8 +329,10 @@ static inline RK_U8 hal_dbg_hex_to_val(char c)
     return 0;
 }
 
-MPP_RET hal_dbg_load_data(HalDbgCtx *ctx, const char *fname, void *buf, RK_U32 buf_size)
+MPP_RET hal_dbg_load_data(HalDbgCtx *ctx, const char *fname, void *buf,
+                          RK_U32 buf_size, const char *mode)
 {
+    RK_U32 skipped = (mode && *mode == 'a') ? ctx->load_offset : 0;
     char load_fname_path[HAL_DBG_PATH_MAX_LEN * 2];
     char line_buf[HAL_DBG_PATH_MAX_LEN * 2];
     RK_U8 *dst = (RK_U8 *)buf;
@@ -311,7 +351,15 @@ MPP_RET hal_dbg_load_data(HalDbgCtx *ctx, const char *fname, void *buf, RK_U32 b
         return MPP_NOK;
     }
 
+    /* reset loaded offset when file changed */
     snprintf(load_fname_path, sizeof(load_fname_path), "%s/%s", ctx->dump_cur_dir, fname);
+    if (strcmp(load_fname_path, ctx->load_fname)) {
+        ctx->load_offset = 0;
+        skipped = 0;
+    }
+
+    strncpy(ctx->load_fname, load_fname_path, sizeof(ctx->load_fname) - 1);
+    ctx->load_fname[sizeof(ctx->load_fname) - 1] = '\0';
     fp = fopen(load_fname_path, "r");
     if (!fp)
         return MPP_NOK;
@@ -329,16 +377,26 @@ MPP_RET hal_dbg_load_data(HalDbgCtx *ctx, const char *fname, void *buf, RK_U32 b
         /* default little-endian */
         hal_dbg_flip_string(line_buf);
 
-        /* convert hex pairs to bytes */
+        /* convert hex pairs to bytes, skip already-loaded bytes */
         for (p = line_buf; *p && loaded < buf_size; p += 2) {
+            if (skipped > 0) {
+                skipped--;
+                continue;
+            }
             lo = hal_dbg_hex_to_val(*p);
             hi = (p[1]) ? hal_dbg_hex_to_val(p[1]) : 0;
             dst[loaded++] = (hi << 4) | lo;
         }
     }
 
+    if (mode && *mode == 'a')
+        ctx->load_offset += loaded;
+    else
+        ctx->load_offset = loaded;
+
     fclose(fp);
-    hal_dbg_info("loaded %u bytes from %s\n", loaded, load_fname_path);
+    hal_dbg_info("loaded %u bytes (skip %u) from %s\n",
+                 loaded, ctx->load_offset - loaded, load_fname_path);
 
     return MPP_OK;
 }
@@ -368,11 +426,41 @@ MPP_RET hal_dbg_dump_regs(HalDbgCtx *ctx, RK_U32 *regs, RK_U32 reg_cnt,
 
     for (i = 0; i < reg_cnt; i++) {
         fprintf(reg_fd, "frm: %04d  reg[%03d]: 0x%08zx: 0x%08x\n",
-                ctx->cur_frm_idx - 1, base_idx + i,
+                ctx->cur_frm_idx, base_idx + i,
                 (base_idx + i) * sizeof(RK_U32), regs[i]);
     }
 
     fclose(reg_fd);
+
+    return MPP_OK;
+}
+
+MPP_RET hal_dbg_log(HalDbgCtx *ctx, const char *fname, const char *mode,
+                    const char *fmt, ...)
+{
+    char dump_fname_path[HAL_DBG_PATH_MAX_LEN * 2];
+    FILE *log_fd = NULL;
+    va_list ap;
+
+    if (0 == hal_dbg_flag_en(ctx, HAL_DBG_LOG))
+        return MPP_OK;
+
+    if (ctx->target_frm_idx != HAL_DBG_TGT_FRM_NONE
+        && ctx->cur_frm_idx != ctx->target_frm_idx)
+        return MPP_OK;
+
+    snprintf(dump_fname_path, sizeof(dump_fname_path), "%s/%s", ctx->dump_cur_dir, fname);
+    log_fd = fopen(dump_fname_path, mode);
+    if (!log_fd) {
+        mpp_loge_f("open log file: %s failed!\n", dump_fname_path);
+        return MPP_NOK;
+    }
+
+    va_start(ap, fmt);
+    vfprintf(log_fd, fmt, ap);
+    va_end(ap);
+
+    fclose(log_fd);
 
     return MPP_OK;
 }
