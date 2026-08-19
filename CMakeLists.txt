@@ -9,7 +9,7 @@
 set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
 if(NOT CMAKE_BUILD_TYPE)
     # default to Release build for GCC builds
-    set(CMAKE_BUILD_TYPE Debug CACHE STRING
+    set(CMAKE_BUILD_TYPE Release CACHE STRING
         "Choose the type of build, options are: None(CMAKE_CXX_FLAGS or CMAKE_C_FLAGS used) Debug Release RelWithDebInfo MinSizeRel."
         FORCE)
 endif()
@@ -124,9 +124,9 @@ endif()
 
 if(${CMAKE_BUILD_TYPE} MATCHES "Release")
     # remove -g option for high version ndk
-    string(REGEX REPLACE "-g[^ ]*" "" TMP "${CMAKE_C_FLAGS}")
+    string(REGEX REPLACE "(^|[ \t])-g([0-9]+)?([ \t]|$)" " " TMP "${CMAKE_C_FLAGS}")
     string(REGEX REPLACE "[ ]+" " " CMAKE_C_FLAGS "${TMP}")
-    string(REGEX REPLACE "-g[^ ]*" "" TMP "${CMAKE_CXX_FLAGS}")
+    string(REGEX REPLACE "(^|[ \t])-g([0-9]+)?([ \t]|$)" " " TMP "${CMAKE_CXX_FLAGS}")
     string(REGEX REPLACE "[ ]+" " " CMAKE_CXX_FLAGS "${TMP}")
 
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3 -DNDEBUG")
@@ -179,6 +179,20 @@ if(GCC)
         set(ASAN_BIN dl rt m)
     endif(ASAN_CHECK)
 endif(GCC)
+
+option(MPP_ENABLE_NATIVE_OPTIMIZATION
+    "Optimize for the build host CPU with -march=native (non-portable)" OFF)
+if(MPP_ENABLE_NATIVE_OPTIMIZATION)
+    if(CMAKE_CROSSCOMPILING)
+        message(FATAL_ERROR
+            "MPP_ENABLE_NATIVE_OPTIMIZATION cannot be used while cross-compiling")
+    elseif(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+        add_compile_options(-march=native)
+    else()
+        message(FATAL_ERROR
+            "MPP_ENABLE_NATIVE_OPTIMIZATION requires GCC or Clang")
+    endif()
+endif()
 
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     add_compile_options(
@@ -278,9 +292,9 @@ find_package(Threads)
 # ----------------------------------------------------------------------------
 # Set Warning as Error
 # ----------------------------------------------------------------------------
-option(WARNINGS_AS_ERRORS "Stop compiles on first warning" OFF)
+option(WARNINGS_AS_ERRORS "Stop compiles on first warning" ON)
 if(WARNINGS_AS_ERRORS)
-    if(GCC)
+    if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
         add_definitions(-Werror)
     elseif(MSVC)
         add_definitions(/WX)

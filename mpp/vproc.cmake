@@ -12,7 +12,7 @@ if( ENABLE_VPROC )
     add_definitions(-DHAVE_VPROC_IEP2)
 endif()
 
-option(ENABLE_VPROC_VDPP "Enable video display post processor" OFF)
+option(ENABLE_VPROC_VDPP "Enable video display post processor" ON)
 if( ENABLE_VPROC_VDPP )
     set(HAVE_VPROC_VDPP true)
     set(VPROC_VDPP vproc_vdpp)
