@@ -9,7 +9,7 @@
 set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
 if(NOT CMAKE_BUILD_TYPE)
     # default to Release build for GCC builds
-    set(CMAKE_BUILD_TYPE Debug CACHE STRING
+    set(CMAKE_BUILD_TYPE Release CACHE STRING
         "Choose the type of build, options are: None(CMAKE_CXX_FLAGS or CMAKE_C_FLAGS used) Debug Release RelWithDebInfo MinSizeRel."
         FORCE)
 endif()
@@ -180,6 +180,20 @@ if(GCC)
     endif(ASAN_CHECK)
 endif(GCC)
 
+option(MPP_ENABLE_NATIVE_OPTIMIZATION
+    "Optimize for the build host CPU with -march=native (non-portable)" OFF)
+if(MPP_ENABLE_NATIVE_OPTIMIZATION)
+    if(CMAKE_CROSSCOMPILING)
+        message(FATAL_ERROR
+            "MPP_ENABLE_NATIVE_OPTIMIZATION cannot be used while cross-compiling")
+    elseif(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+        add_compile_options(-march=native)
+    else()
+        message(FATAL_ERROR
+            "MPP_ENABLE_NATIVE_OPTIMIZATION requires GCC or Clang")
+    endif()
+endif()
+
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     add_compile_options(
         "$<$<COMPILE_LANGUAGE:C>:-Wall;-Wextra;-Wuninitialized;-Wmissing-field-initializers>"
@@ -278,9 +292,9 @@ find_package(Threads)
 # ----------------------------------------------------------------------------
 # Set Warning as Error
 # ----------------------------------------------------------------------------
-option(WARNINGS_AS_ERRORS "Stop compiles on first warning" OFF)
+option(WARNINGS_AS_ERRORS "Stop compiles on first warning" ON)
 if(WARNINGS_AS_ERRORS)
-    if(GCC)
+    if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
         add_definitions(-Werror)
     elseif(MSVC)
         add_definitions(/WX)
