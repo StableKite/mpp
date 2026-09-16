@@ -31,6 +31,9 @@ extern "C" {
 /* Standard test UUID for unregistered user data SEI */
 extern RK_U8 venc_test_uuid[16];
 
+/* Deep-copy a frame cfg entry with VLA tails and bind test userdata. */
+MppEncFrmCfg *venc_dup_frm_cfg_with_ud(const MppEncFrmCfg *entry, RK_U8 *ud_buf, RK_U32 ud_buf_size);
+
 /* Set USER_DATA test pattern into frame meta (single buffer variant). */
 MPP_RET kmpp_venc_gen_userdata(KmppMeta meta, RK_U8 *ud_buf, RK_U32 ud_buf_size);
 
@@ -60,14 +63,15 @@ MPP_RET kmpp_venc_gen_osd(KmppMeta meta, RK_U32 w, RK_U32 h,
  * Dispatches to scalar, userdata/userdatas, ROI, OSD and JPEG ROI
  * w/h are the frame dimensions, used for ratio-to-pixel conversion.
  */
-MPP_RET kmpp_venc_gen_frame_meta(KmppMeta meta, RK_U32 w, RK_U32 h,
-                                 const MppEncFrmCfg *entry);
+MPP_RET kmpp_venc_gen_frame_meta(KmppMeta meta, RK_U32 w, RK_U32 h, const MppEncFrmCfg *entry);
 
 /*
- * Scan H.264/H.265 SEI NAL for userdata unregistered payload.
- * Returns 1 if payload matches 'expect', 0 otherwise.
+ * Scan H.264/H.265 SEI NAL for a userdata unregistered payload with an
+ * exact UUID and exact-length payload match.
+ * Returns 1 on match, 0 otherwise.
  */
-RK_S32 kmpp_venc_scan_sei_userdata(const RK_U8 *data, RK_S32 len, const char *expect, RK_S32 expect_len);
+RK_S32 kmpp_venc_scan_sei_userdata(const RK_U8 *data, RK_S32 len,
+                                   const RK_U8 *uuid, const void *expect, RK_S32 expect_len);
 
 /*
  * Persistent test resources referenced by ordinary MppMeta.
