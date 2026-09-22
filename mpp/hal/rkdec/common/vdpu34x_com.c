@@ -22,6 +22,7 @@
 #include "mpp_log.h"
 #include "mpp_buffer.h"
 #include "mpp_common.h"
+#include "mpp_frame_impl.h"
 #include "mpp_compat_impl.h"
 #include "mpp_env.h"
 
@@ -217,4 +218,69 @@ RK_U32 vdpu34x_get_colmv_size(RK_U32 width, RK_U32 height, RK_U32 ctu_size,
     }
 
     return MPP_ALIGN(colmv_total_size, 128);
+}
+
+MPP_RET vdpu34x_set_colmv_size(MppBufSlots frame_slots, RK_S32 output,
+                               RK_U32 size)
+{
+    MppFrame frame = NULL;
+    MppMeta meta = NULL;
+
+    if (!frame_slots || output < 0)
+        return MPP_NOK;
+
+    mpp_buf_slot_get_prop(frame_slots, output, SLOT_FRAME_PTR, &frame);
+    if (!frame)
+        return MPP_NOK;
+
+    meta = mpp_frame_get_meta(frame);
+    if (!meta)
+        return MPP_NOK;
+
+    return mpp_meta_set_s32(meta, KEY_DEC_COLMV_SIZE, (RK_S32)size);
+}
+
+MPP_RET vdpu34x_export_colmv(MppBufSlots frame_slots, RK_S32 output,
+                             MppBuffer colmv, RK_S32 fmt, RK_U32 valid)
+{
+    MppFrame frame = NULL;
+    MppMeta meta = NULL;
+    MPP_RET ret = MPP_OK;
+
+    if (!frame_slots || output < 0)
+        return MPP_NOK;
+
+    mpp_buf_slot_get_prop(frame_slots, output, SLOT_FRAME_PTR, &frame);
+    if (!frame)
+        return MPP_NOK;
+
+    if (!valid || !colmv ||
+        fmt <= MPP_DEC_COLMV_FMT_NONE ||
+        fmt >= MPP_DEC_COLMV_FMT_BUTT) {
+        valid = 0;
+        colmv = NULL;
+        fmt = MPP_DEC_COLMV_FMT_NONE;
+    }
+
+    /*
+     * The frame owns an extra reference while raw COLMV is exported.
+     * Invalid completion clears any previously attached reference first.
+     */
+    if (!valid)
+        mpp_frame_set_colmv_buffer(frame, NULL);
+
+    meta = mpp_frame_get_meta(frame);
+    if (!meta)
+        return MPP_NOK;
+
+    if (valid)
+        mpp_frame_set_colmv_buffer(frame, colmv);
+
+    ret |= mpp_meta_set_buffer(meta, KEY_DEC_COLMV, colmv);
+    ret |= mpp_meta_set_s32(meta, KEY_DEC_COLMV_FMT, fmt);
+
+    if (!valid)
+        ret |= mpp_meta_set_s32(meta, KEY_DEC_COLMV_SIZE, 0);
+
+    return ret;
 }

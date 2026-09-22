@@ -1035,6 +1035,10 @@ void vdpu34x_setup_statistic(Vdpu34xRegComm *com, Vdpu34xRegStatistic *sta);
 RK_S32 vdpu34x_set_rcbinfo(MppDev dev, VdpuRcbInfo *rcb_info);
 RK_U32 vdpu34x_get_colmv_size(RK_U32 width, RK_U32 height, RK_U32 ctu_size,
                               RK_U32 colmv_bytes, RK_U32 colmv_size, RK_U32 compress);
+MPP_RET vdpu34x_set_colmv_size(MppBufSlots frame_slots, RK_S32 output,
+                               RK_U32 size);
+MPP_RET vdpu34x_export_colmv(MppBufSlots frame_slots, RK_S32 output,
+                             MppBuffer colmv, RK_S32 fmt, RK_U32 valid);
 
 #ifdef  __cplusplus
 }

@@ -763,20 +763,13 @@ MPP_RET vdpu34x_h264d_gen_regs(void *hal, HalTaskInfo *task)
         RK_U32 valid_size = vdpu34x_get_colmv_size(width, height,
                                                     16, 16, 4,
                                                     compress);
-        MppFrame frame = NULL;
 
         if (!p_hal->pp->frame_mbs_only_flag)
             valid_size *= 2;
 
-        mpp_buf_slot_get_prop(cfg->frame_slots, task->dec.output,
-                              SLOT_FRAME_PTR, &frame);
-        if (frame) {
-            MppMeta meta = mpp_frame_get_meta(frame);
-
-            if (!meta || mpp_meta_set_s32(meta, KEY_DEC_COLMV_SIZE,
-                                         (RK_S32)valid_size))
-                mpp_err_f("failed to set H264 COLMV valid size\n");
-        }
+        if (vdpu34x_set_colmv_size(cfg->frame_slots, task->dec.output,
+                                   valid_size))
+            mpp_err_f("failed to set H264 COLMV valid size\n");
     }
 
     prepare_spspps(p_hal, (RK_U64 *)ctx->spspps, VDPU34X_SPSPPS_UNIT_SIZE / 8);
@@ -931,19 +924,11 @@ static void vdpu34x_h264d_export_colmv(H264dHalCtx_t *p_hal,
                                        RK_U32 valid)
 {
     MppHalCfg *cfg = p_hal->cfg;
-    MppFrame frame = NULL;
-    MppMeta meta = NULL;
     MppBuffer colmv = NULL;
-    MPP_RET meta_ret = MPP_OK;
     RK_S32 fmt = MPP_DEC_COLMV_FMT_NONE;
 
     if (mpp_get_soc_type() != ROCKCHIP_SOC_RK3588 ||
         task->dec.output < 0)
-        return;
-
-    mpp_buf_slot_get_prop(cfg->frame_slots, task->dec.output,
-                          SLOT_FRAME_PTR, &frame);
-    if (!frame)
         return;
 
     if (valid && p_hal->cmv_bufs) {
@@ -956,25 +941,14 @@ static void vdpu34x_h264d_export_colmv(H264dHalCtx_t *p_hal,
             valid = 0;
     }
 
-    if (!valid)
-        mpp_frame_set_colmv_buffer(frame, NULL);
-
-    meta = mpp_frame_get_meta(frame);
-    if (!meta)
-        return;
-
     if (valid) {
-        mpp_frame_set_colmv_buffer(frame, colmv);
         fmt = regs->comm_gen.reg012.colmv_compress_en ?
               MPP_DEC_COLMV_FMT_VDPU34X_H264_COMPRESSED :
               MPP_DEC_COLMV_FMT_VDPU34X_H264_UNCOMPRESSED;
     }
 
-    meta_ret |= mpp_meta_set_buffer(meta, KEY_DEC_COLMV, colmv);
-    meta_ret |= mpp_meta_set_s32(meta, KEY_DEC_COLMV_FMT, fmt);
-    if (!valid)
-        meta_ret |= mpp_meta_set_s32(meta, KEY_DEC_COLMV_SIZE, 0);
-    if (meta_ret)
+    if (vdpu34x_export_colmv(cfg->frame_slots, task->dec.output,
+                             colmv, fmt, valid))
         mpp_err_f("failed to export decoder COLMV metadata\n");
 }
 

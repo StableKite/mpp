@@ -501,7 +501,7 @@ __FAILED:
     return ret;
 }
 
-static MPP_RET set_up_colmv_buf(void *hal)
+static MPP_RET set_up_colmv_buf(void *hal, RK_U32 *valid_size)
 {
     MPP_RET ret = MPP_OK;
     Avs2dHalCtx_t *p_hal = (Avs2dHalCtx_t *)hal;
@@ -516,6 +516,10 @@ static MPP_RET set_up_colmv_buf(void *hal)
                                      COLMV_BLOCK_SIZE, COLMV_COMPRESS_EN);
     if (pp->field_coded_sequence)
         mv_size *= 2;
+
+    if (valid_size)
+        *valid_size = mv_size;
+
     AVS2D_HAL_TRACE("mv_size %d", mv_size);
 
     if (p_hal->cmv_bufs == NULL || p_hal->mv_size < mv_size) {
@@ -549,6 +553,7 @@ MPP_RET hal_avs2d_rkv_gen_regs(void *hal, HalTaskInfo *task)
     Avs2dHalCtx_t *p_hal = (Avs2dHalCtx_t *)hal;
     Vdpu34xRegSet *regs = NULL;
     MppHalCfg *cfg = p_hal->cfg;
+    RK_U32 colmv_valid_size = 0;
 
     AVS2D_HAL_TRACE("In.");
 
@@ -561,9 +566,17 @@ MPP_RET hal_avs2d_rkv_gen_regs(void *hal, HalTaskInfo *task)
     }
 
     memcpy(&p_hal->syntax, task->dec.syntax.data, sizeof(Avs2dSyntax_t));
-    ret = set_up_colmv_buf(p_hal);
+    ret = set_up_colmv_buf(p_hal, &colmv_valid_size);
     if (ret)
         goto __RETURN;
+
+    if (cfg->cfg->base.enable_colmv &&
+        mpp_get_soc_type() == ROCKCHIP_SOC_RK3588 &&
+        task->dec.output >= 0) {
+        if (vdpu34x_set_colmv_size(cfg->frame_slots, task->dec.output,
+                                   colmv_valid_size))
+            mpp_err_f("failed to set AVS2 COLMV valid size\n");
+    }
 
     reg_ctx = (Avs2dRkvRegCtx *)p_hal->reg_ctx;
 
@@ -865,6 +878,35 @@ __RETURN:
     return ret;
 }
 
+static void hal_avs2d_rkv_export_colmv(Avs2dHalCtx_t *p_hal,
+                                        HalTaskInfo *task,
+                                        RK_U32 valid)
+{
+    MppBuffer colmv = NULL;
+    RK_S32 fmt = MPP_DEC_COLMV_FMT_NONE;
+
+    if (mpp_get_soc_type() != ROCKCHIP_SOC_RK3588 ||
+        task->dec.output < 0)
+        return;
+
+    if (valid && p_hal->cmv_bufs) {
+        HalBuf *mv_buf = hal_bufs_get_buf(p_hal->cmv_bufs,
+                                          task->dec.output);
+
+        if (mv_buf)
+            colmv = mv_buf->buf[0];
+        if (!colmv)
+            valid = 0;
+    }
+
+    if (valid)
+        fmt = MPP_DEC_COLMV_FMT_VDPU34X_AVS2_COMPRESSED;
+
+    if (vdpu34x_export_colmv(p_hal->cfg->frame_slots, task->dec.output,
+                             colmv, fmt, valid))
+        mpp_err_f("failed to export AVS2 decoder COLMV metadata\n");
+}
+
 MPP_RET hal_avs2d_rkv_wait(void *hal, HalTaskInfo *task)
 {
     MPP_RET ret = MPP_OK;
@@ -880,11 +922,31 @@ MPP_RET hal_avs2d_rkv_wait(void *hal, HalTaskInfo *task)
         !p_hal->cfg->cfg->base.disable_error) {
         AVS2D_HAL_DBG(AVS2D_HAL_DBG_ERROR, "found task error.\n");
         ret = MPP_NOK;
+
+        if (p_hal->cfg->cfg->base.enable_colmv)
+            hal_avs2d_rkv_export_colmv(p_hal, task, 0);
+
         goto __RETURN;
     } else {
         ret = mpp_dev_ioctl(p_hal->cfg->dev, MPP_DEV_CMD_POLL, NULL);
         if (ret)
             mpp_err_f("poll cmd failed %d\n", ret);
+    }
+
+    if (p_hal->cfg->cfg->base.enable_colmv) {
+        RK_U32 colmv_valid =
+            ret == MPP_OK &&
+            !task->dec.flags.parse_err &&
+            !(task->dec.flags.ref_err &&
+              !p_hal->cfg->cfg->base.disable_error) &&
+            !p_regs->irq_status.reg224.dec_error_sta &&
+            p_regs->irq_status.reg224.dec_rdy_sta &&
+            !p_regs->irq_status.reg224.buf_empty_sta &&
+            !p_regs->irq_status.reg226.strmd_error_status &&
+            !p_regs->irq_status.reg227.colmv_error_ref_picidx &&
+            !p_regs->irq_status.reg225.strmd_detect_error_flag;
+
+        hal_avs2d_rkv_export_colmv(p_hal, task, colmv_valid);
     }
 
     if (hal_avs2d_debug & AVS2D_HAL_DBG_OUT)

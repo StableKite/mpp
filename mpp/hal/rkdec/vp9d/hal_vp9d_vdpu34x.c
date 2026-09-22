@@ -375,7 +375,8 @@ static void hal_vp9d_rcb_info_update(void *hal,  Vdpu34xRegSet *hw_regs, void *d
     }
 }
 
-static MPP_RET hal_vp9d_vdpu34x_setup_colmv_buf(void *hal, HalTaskInfo *task)
+static MPP_RET hal_vp9d_vdpu34x_setup_colmv_buf(void *hal, HalTaskInfo *task,
+                                                    RK_U32 *valid_size)
 {
     HalVp9dCtx *p_hal = (HalVp9dCtx*)hal;
     Vdpu34xVp9dCtx *hw_ctx = (Vdpu34xVp9dCtx*)p_hal->hw_ctx;
@@ -386,6 +387,9 @@ static MPP_RET hal_vp9d_vdpu34x_setup_colmv_buf(void *hal, HalTaskInfo *task)
     RK_U32 compress = p_hal->cfg->hw_info ? p_hal->cfg->hw_info->cap_colmv_compress : 1;
 
     mv_size = vdpu34x_get_colmv_size(width, height, VP9_CTU_SIZE, colmv_byte, colmv_size, compress);
+    if (valid_size)
+        *valid_size = (RK_U32)mv_size;
+
     if (hw_ctx->cmv_bufs == NULL || hw_ctx->mv_size < mv_size) {
         size_t size = mv_size;
 
@@ -427,6 +431,7 @@ static MPP_RET hal_vp9d_vdpu34x_gen_regs(void *hal, HalTaskInfo *task)
     MppBuffer framebuf = NULL;
     HalBuf *mv_buf = NULL;
     RK_U32 fbc_en = 0;
+    RK_U32 colmv_valid_size = 0;
 
     HalVp9dCtx *p_hal = (HalVp9dCtx*)hal;
     Vdpu34xVp9dCtx *hw_ctx = (Vdpu34xVp9dCtx*)p_hal->hw_ctx;
@@ -453,8 +458,17 @@ static MPP_RET hal_vp9d_vdpu34x_gen_regs(void *hal, HalTaskInfo *task)
         task->dec.reg_index = 0;
     }
 
-    if (hal_vp9d_vdpu34x_setup_colmv_buf(hal, task))
+    if (hal_vp9d_vdpu34x_setup_colmv_buf(hal, task,
+                                              &colmv_valid_size))
         return MPP_ERR_NOMEM;
+
+    if (cfg->cfg->base.enable_colmv &&
+        mpp_get_soc_type() == ROCKCHIP_SOC_RK3588 &&
+        task->dec.output >= 0) {
+        if (vdpu34x_set_colmv_size(cfg->frame_slots, task->dec.output,
+                                   colmv_valid_size))
+            mpp_err_f("failed to set VP9 COLMV valid size\n");
+    }
 
     Vdpu34xRegSet *vp9_hw_regs = (Vdpu34xRegSet*)hw_ctx->hw_regs;
     intraFlag = (!pic_param->frame_type || pic_param->intra_only);
@@ -967,6 +981,40 @@ static MPP_RET hal_vp9d_vdpu34x_start(void *hal, HalTaskInfo *task)
     return ret;
 }
 
+static void hal_vp9d_vdpu34x_export_colmv(HalVp9dCtx *p_hal,
+                                          HalTaskInfo *task,
+                                          Vdpu34xRegSet *hw_regs,
+                                          RK_U32 valid)
+{
+    Vdpu34xVp9dCtx *hw_ctx = (Vdpu34xVp9dCtx *)p_hal->hw_ctx;
+    MppBuffer colmv = NULL;
+    RK_S32 fmt = MPP_DEC_COLMV_FMT_NONE;
+
+    if (mpp_get_soc_type() != ROCKCHIP_SOC_RK3588 ||
+        task->dec.output < 0)
+        return;
+
+    if (valid && hw_ctx->cmv_bufs) {
+        HalBuf *mv_buf = hal_bufs_get_buf(hw_ctx->cmv_bufs,
+                                          task->dec.output);
+
+        if (mv_buf)
+            colmv = mv_buf->buf[0];
+        if (!colmv)
+            valid = 0;
+    }
+
+    if (valid) {
+        fmt = hw_regs->comm_gen.reg012.colmv_compress_en ?
+              MPP_DEC_COLMV_FMT_VDPU34X_VP9_COMPRESSED :
+              MPP_DEC_COLMV_FMT_VDPU34X_VP9_UNCOMPRESSED;
+    }
+
+    if (vdpu34x_export_colmv(p_hal->cfg->frame_slots, task->dec.output,
+                             colmv, fmt, valid))
+        mpp_err_f("failed to export VP9 decoder COLMV metadata\n");
+}
+
 static MPP_RET hal_vp9d_vdpu34x_wait(void *hal, HalTaskInfo *task)
 {
     MPP_RET ret = MPP_OK;
@@ -982,6 +1030,23 @@ static MPP_RET hal_vp9d_vdpu34x_wait(void *hal, HalTaskInfo *task)
     ret = mpp_dev_ioctl(p_hal->cfg->dev, MPP_DEV_CMD_POLL, NULL);
     if (ret)
         mpp_err_f("poll cmd failed %d\n", ret);
+
+    if (p_hal->cfg->cfg->base.enable_colmv) {
+        RK_U32 colmv_valid =
+            ret == MPP_OK &&
+            !task->dec.flags.parse_err &&
+            !task->dec.flags.ref_err &&
+            !hw_regs->irq_status.reg224.dec_error_sta &&
+            !hw_regs->irq_status.reg224.dec_bus_sta &&
+            hw_regs->irq_status.reg224.dec_rdy_sta &&
+            !hw_regs->irq_status.reg224.buf_empty_sta &&
+            !hw_regs->irq_status.reg226.strmd_error_status &&
+            !hw_regs->irq_status.reg227.colmv_error_ref_picidx &&
+            !hw_regs->irq_status.reg225.strmd_detect_error_flag;
+
+        hal_vp9d_vdpu34x_export_colmv(p_hal, task, hw_regs,
+                                      colmv_valid);
+    }
 
     if (hal_vp9d_debug & HAL_VP9D_DBG_REG) {
         RK_U32 *p = (RK_U32 *)hw_regs;
