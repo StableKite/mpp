@@ -2472,7 +2472,9 @@ static MPP_RET read_one_obu_unit(Av1Codec *ctx, Av1ObuUnit *unit)
             RK_S32 in_temporal_layer = (ctx->operating_point_idc >> ctx->temporal_id) & 1;
             RK_S32 in_spatial_layer  = (ctx->operating_point_idc >> (ctx->spatial_id + 8)) & 1;
             if (!in_temporal_layer || !in_spatial_layer) {
-                return MPP_ERR_PROTOL; // drop_obu()
+                unit->data = NULL;
+                unit->data_size = 0;
+                return MPP_OK;
             }
         }
     }
