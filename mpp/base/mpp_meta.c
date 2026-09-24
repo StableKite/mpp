@@ -171,6 +171,22 @@ static inline RK_U64 META_KEY_TO_U64(RK_U32 key, RK_U32 type)
     ENTRY(KEY_DEC_COLMV_FMT,         TYPE_VAL_32) \
     ENTRY(KEY_DEC_COLMV_SIZE,        TYPE_VAL_32) \
     \
+    /* opt-in per-frame decoder hardware statistics */ \
+    ENTRY(KEY_DEC_HW_STAT_VERSION,               TYPE_VAL_32) \
+    ENTRY(KEY_DEC_HW_STAT_RD_MAX_LATENCY,        TYPE_VAL_64) \
+    ENTRY(KEY_DEC_HW_STAT_RD_LATENCY_THR_COUNT,  TYPE_VAL_64) \
+    ENTRY(KEY_DEC_HW_STAT_RD_LATENCY_ACC_SUM,    TYPE_VAL_64) \
+    ENTRY(KEY_DEC_HW_STAT_RD_AXI_BYTES,          TYPE_VAL_64) \
+    ENTRY(KEY_DEC_HW_STAT_WR_AXI_BYTES,          TYPE_VAL_64) \
+    ENTRY(KEY_DEC_HW_STAT_WORKING_COUNT,         TYPE_VAL_64) \
+    ENTRY(KEY_DEC_HW_STAT_Y_MIN,                 TYPE_VAL_32) \
+    ENTRY(KEY_DEC_HW_STAT_Y_MAX,                 TYPE_VAL_32) \
+    ENTRY(KEY_DEC_HW_STAT_U_MIN,                 TYPE_VAL_32) \
+    ENTRY(KEY_DEC_HW_STAT_U_MAX,                 TYPE_VAL_32) \
+    ENTRY(KEY_DEC_HW_STAT_V_MIN,                 TYPE_VAL_32) \
+    ENTRY(KEY_DEC_HW_STAT_V_MAX,                 TYPE_VAL_32) \
+    ENTRY(KEY_DEC_HW_STAT_ERR_SPREAD,            TYPE_VAL_64) \
+    \
     ENTRY(KEY_DEC_TBN_EN,           TYPE_VAL_32) \
     ENTRY(KEY_DEC_TBN_Y_OFFSET,     TYPE_VAL_32) \
     ENTRY(KEY_DEC_TBN_UV_OFFSET,    TYPE_VAL_32)

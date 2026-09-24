@@ -40,6 +40,7 @@
     ENTRY(prefix, u32, rk_u32,     enable_fast_play,    FLAG_INCR,      base, enable_fast_play) \
     ENTRY(prefix, u32, rk_u32,     enable_hdr_meta,     FLAG_INCR,      base, enable_hdr_meta) \
     ENTRY(prefix, u32, rk_u32,     enable_colmv,        FLAG_INCR,      base, enable_colmv) \
+    ENTRY(prefix, u32, rk_u32,     enable_hw_stat,      FLAG_INCR,      base, enable_hw_stat) \
     ENTRY(prefix, u32, rk_u32,     enable_thumbnail,    FLAG_INCR,      base, enable_thumbnail) \
     ENTRY(prefix, u32, rk_u32,     enable_mvc,          FLAG_INCR,      base, enable_mvc) \
     ENTRY(prefix, u32, rk_u32,     disable_dpb_chk,     FLAG_INCR,      base, disable_dpb_chk) \

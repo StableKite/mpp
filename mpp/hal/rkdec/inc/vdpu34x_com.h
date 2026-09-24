@@ -1039,6 +1039,9 @@ MPP_RET vdpu34x_set_colmv_size(MppBufSlots frame_slots, RK_S32 output,
                                RK_U32 size);
 MPP_RET vdpu34x_export_colmv(MppBufSlots frame_slots, RK_S32 output,
                              MppBuffer colmv, RK_S32 fmt, RK_U32 valid);
+MPP_RET vdpu34x_export_statistic(MppBufSlots frame_slots, RK_S32 output,
+                                 const Vdpu34xRegStatistic *stat,
+                                 RK_U32 valid);
 
 #ifdef  __cplusplus
 }

@@ -284,3 +284,80 @@ MPP_RET vdpu34x_export_colmv(MppBufSlots frame_slots, RK_S32 output,
 
     return ret;
 }
+MPP_RET vdpu34x_export_statistic(MppBufSlots frame_slots, RK_S32 output,
+                                 const Vdpu34xRegStatistic *stat,
+                                 RK_U32 valid)
+{
+    MppFrame frame = NULL;
+    MppMeta meta = NULL;
+    MPP_RET ret = MPP_OK;
+    RK_S64 rd_max_latency = 0;
+    RK_S64 rd_latency_thr_count = 0;
+    RK_S64 rd_latency_acc_sum = 0;
+    RK_S64 rd_axi_bytes = 0;
+    RK_S64 wr_axi_bytes = 0;
+    RK_S64 working_count = 0;
+    RK_S32 y_min = 0;
+    RK_S32 y_max = 0;
+    RK_S32 u_min = 0;
+    RK_S32 u_max = 0;
+    RK_S32 v_min = 0;
+    RK_S32 v_max = 0;
+    RK_S64 err_spread = 0;
+
+    if (!frame_slots || output < 0)
+        return MPP_NOK;
+
+    mpp_buf_slot_get_prop(frame_slots, output, SLOT_FRAME_PTR, &frame);
+    if (!frame)
+        return MPP_NOK;
+
+    if (!valid || !stat)
+        valid = 0;
+
+    if (valid) {
+        rd_max_latency = stat->reg258.rd_max_latency_num;
+        rd_latency_thr_count = stat->reg259_rd_latency_thr_num_ch0;
+        rd_latency_acc_sum = stat->reg260_rd_latency_acc_sum;
+        rd_axi_bytes = stat->reg261_perf_rd_axi_total_byte;
+        wr_axi_bytes = stat->reg262_perf_wr_axi_total_byte;
+        working_count = stat->reg263_perf_working_cnt;
+        y_min = stat->reg274_y_min_value;
+        y_max = stat->reg274_y_max_value;
+        u_min = stat->reg275_u_min_value;
+        u_max = stat->reg275_u_max_value;
+        v_min = stat->reg276_v_min_value;
+        v_max = stat->reg276_v_max_value;
+        err_spread = stat->reg277.err_spread_cnt_sum;
+    }
+
+    meta = mpp_frame_get_meta(frame);
+    if (!meta)
+        return MPP_NOK;
+
+    ret |= mpp_meta_set_s32(meta, KEY_DEC_HW_STAT_VERSION,
+                            valid ? MPP_DEC_HW_STAT_VERSION_1 :
+                            MPP_DEC_HW_STAT_VERSION_NONE);
+    ret |= mpp_meta_set_s64(meta, KEY_DEC_HW_STAT_RD_MAX_LATENCY,
+                            rd_max_latency);
+    ret |= mpp_meta_set_s64(meta, KEY_DEC_HW_STAT_RD_LATENCY_THR_COUNT,
+                            rd_latency_thr_count);
+    ret |= mpp_meta_set_s64(meta, KEY_DEC_HW_STAT_RD_LATENCY_ACC_SUM,
+                            rd_latency_acc_sum);
+    ret |= mpp_meta_set_s64(meta, KEY_DEC_HW_STAT_RD_AXI_BYTES,
+                            rd_axi_bytes);
+    ret |= mpp_meta_set_s64(meta, KEY_DEC_HW_STAT_WR_AXI_BYTES,
+                            wr_axi_bytes);
+    ret |= mpp_meta_set_s64(meta, KEY_DEC_HW_STAT_WORKING_COUNT,
+                            working_count);
+    ret |= mpp_meta_set_s32(meta, KEY_DEC_HW_STAT_Y_MIN, y_min);
+    ret |= mpp_meta_set_s32(meta, KEY_DEC_HW_STAT_Y_MAX, y_max);
+    ret |= mpp_meta_set_s32(meta, KEY_DEC_HW_STAT_U_MIN, u_min);
+    ret |= mpp_meta_set_s32(meta, KEY_DEC_HW_STAT_U_MAX, u_max);
+    ret |= mpp_meta_set_s32(meta, KEY_DEC_HW_STAT_V_MIN, v_min);
+    ret |= mpp_meta_set_s32(meta, KEY_DEC_HW_STAT_V_MAX, v_max);
+    ret |= mpp_meta_set_s64(meta, KEY_DEC_HW_STAT_ERR_SPREAD,
+                            err_spread);
+
+    return ret;
+}

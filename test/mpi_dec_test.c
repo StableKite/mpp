@@ -52,6 +52,12 @@ typedef struct {
     RK_U32          colmv_frames;
     RK_U32          colmv_nonzero_frames;
     MPP_RET         colmv_ret;
+
+    /* Optional decoder hardware-statistic validation. */
+    RK_U32          hw_stat_enable;
+    RK_U32          hw_stat_frames;
+    RK_U32          hw_stat_nonzero_frames;
+    MPP_RET         hw_stat_ret;
 } MpiDecLoopData;
 
 static MPP_RET dec_validate_colmv(MpiDecLoopData *data, MppFrame frame)
@@ -129,6 +135,69 @@ static MPP_RET dec_validate_colmv(MpiDecLoopData *data, MppFrame frame)
 
     mpp_log("COLMV frame %d fmt %d size %zu nonzero %u hash %08x\n",
             data->frame_count, fmt, size, nonzero, hash);
+
+    return MPP_OK;
+}
+
+static MPP_RET dec_validate_hw_stat(MpiDecLoopData *data, MppFrame frame)
+{
+    MppMeta meta = NULL;
+    RK_S32 version = MPP_DEC_HW_STAT_VERSION_NONE;
+    RK_S64 rd_max_latency = 0;
+    RK_S64 rd_latency_thr_count = 0;
+    RK_S64 rd_latency_acc_sum = 0;
+    RK_S64 rd_axi_bytes = 0;
+    RK_S64 wr_axi_bytes = 0;
+    RK_S64 working_count = 0;
+    MPP_RET ret;
+
+    if (!data->hw_stat_enable || !mpp_frame_has_meta(frame))
+        return MPP_OK;
+
+    meta = mpp_frame_get_meta(frame);
+    if (!meta)
+        return MPP_NOK;
+
+    ret = mpp_meta_get_s32(meta, KEY_DEC_HW_STAT_VERSION, &version);
+    if (ret)
+        return MPP_OK;
+
+    if (version != MPP_DEC_HW_STAT_VERSION_1) {
+        mpp_err_f("invalid HWSTAT version %d\n", version);
+        return MPP_NOK;
+    }
+
+    ret = mpp_meta_get_s64(meta, KEY_DEC_HW_STAT_RD_MAX_LATENCY,
+                           &rd_max_latency);
+    ret |= mpp_meta_get_s64(meta, KEY_DEC_HW_STAT_RD_LATENCY_THR_COUNT,
+                            &rd_latency_thr_count);
+    ret |= mpp_meta_get_s64(meta, KEY_DEC_HW_STAT_RD_LATENCY_ACC_SUM,
+                            &rd_latency_acc_sum);
+    ret |= mpp_meta_get_s64(meta, KEY_DEC_HW_STAT_RD_AXI_BYTES,
+                            &rd_axi_bytes);
+    ret |= mpp_meta_get_s64(meta, KEY_DEC_HW_STAT_WR_AXI_BYTES,
+                            &wr_axi_bytes);
+    ret |= mpp_meta_get_s64(meta, KEY_DEC_HW_STAT_WORKING_COUNT,
+                            &working_count);
+    if (ret) {
+        mpp_err_f("missing HWSTAT counter ret %d\n", ret);
+        return MPP_NOK;
+    }
+
+    data->hw_stat_frames++;
+    if (rd_axi_bytes || wr_axi_bytes || working_count)
+        data->hw_stat_nonzero_frames++;
+
+    mpp_log("HWSTAT frame %d ver %d rd_bytes %lld wr_bytes %lld "
+            "working %lld max_latency %lld latency_thr %lld "
+            "latency_sum %lld\n",
+            data->frame_count, version,
+            (long long)rd_axi_bytes,
+            (long long)wr_axi_bytes,
+            (long long)working_count,
+            (long long)rd_max_latency,
+            (long long)rd_latency_thr_count,
+            (long long)rd_latency_acc_sum);
 
     return MPP_OK;
 }
@@ -279,6 +348,14 @@ static MPP_RET dec_simple(MpiDecLoopData *data)
                         return ret;
                     }
 
+                    ret = dec_validate_hw_stat(data, frame);
+                    if (ret) {
+                        mpp_err_f("HWSTAT validation failed ret %d\n", ret);
+                        data->hw_stat_ret = ret;
+                        mpp_frame_deinit(&frame);
+                        return ret;
+                    }
+
                     log_len += snprintf(log_buf + log_len, log_size - log_len,
                                         "decode get frame %d", data->frame_count);
 
@@ -416,6 +493,13 @@ static int dec_advanced(MpiDecLoopData *data)
     if (frame_ret != frame)
         mpp_err_f("mismatch frame %p -> %p\n", frame_ret, frame);
 
+    ret = dec_validate_hw_stat(data, frame_ret);
+    if (ret) {
+        mpp_err_f("HWSTAT validation failed ret %d\n", ret);
+        data->hw_stat_ret = ret;
+        goto DONE;
+    }
+
     /* write frame to file here */
     if (data->fp_output)
         dump_mpp_frame_to_file(frame_ret, data->fp_output);
@@ -518,8 +602,9 @@ int dec_decode(MpiDecTestCmd *cmd)
 
     // config for runtime mode
     MppDecCfg cfg       = NULL;
-    RK_U32 need_split   = 1;
-    RK_U32 enable_colmv = 0;
+    RK_U32 need_split     = 1;
+    RK_U32 enable_colmv   = 0;
+    RK_U32 enable_hw_stat = 0;
 
     // resources
     MppBuffer frm_buf   = NULL;
@@ -611,6 +696,7 @@ int dec_decode(MpiDecTestCmd *cmd)
 
     mpp_dec_cfg_init(&cfg);
     mpp_env_get_u32("mpi_dec_colmv", &enable_colmv, 0);
+    mpp_env_get_u32("mpi_dec_hw_stat", &enable_hw_stat, 0);
 
     /* get default config from decoder context */
     ret = mpi->control(ctx, MPP_DEC_GET_CFG, cfg);
@@ -638,6 +724,16 @@ int dec_decode(MpiDecTestCmd *cmd)
         mpp_log("%p decoder raw COLMV export enabled\n", ctx);
     }
 
+    if (enable_hw_stat) {
+        ret = mpp_dec_cfg_set_u32(cfg, "base:enable_hw_stat", 1);
+        if (ret) {
+            mpp_err("%p failed to enable HW statistics ret %d\n",
+                    ctx, ret);
+            goto MPP_TEST_OUT;
+        }
+        mpp_log("%p decoder HW statistic export enabled\n", ctx);
+    }
+
     ret = mpi->control(ctx, MPP_DEC_SET_CFG, cfg);
     if (ret) {
         mpp_err("%p failed to set cfg %p ret %d\n", ctx, cfg, ret);
@@ -654,6 +750,7 @@ int dec_decode(MpiDecTestCmd *cmd)
     data.frame_num      = cmd->frame_num;
     data.quiet          = cmd->quiet;
     data.colmv_enable   = enable_colmv;
+    data.hw_stat_enable = enable_hw_stat;
 
     pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
 
@@ -688,6 +785,30 @@ int dec_decode(MpiDecTestCmd *cmd)
 
         if (!data.colmv_frames) {
             mpp_err("COLMV export enabled but no COLMV buffer was received\n");
+            ret = MPP_NOK;
+            goto MPP_TEST_OUT;
+        }
+    }
+
+    if (enable_hw_stat) {
+        if (data.hw_stat_ret) {
+            mpp_err("HWSTAT validation thread failed ret %d\n",
+                    data.hw_stat_ret);
+            ret = data.hw_stat_ret;
+            goto MPP_TEST_OUT;
+        }
+
+        mpp_log("HWSTAT summary frames %u nonzero_frames %u\n",
+                data.hw_stat_frames, data.hw_stat_nonzero_frames);
+
+        if (!data.hw_stat_frames) {
+            mpp_err("HW statistic export enabled but no metadata was received\n");
+            ret = MPP_NOK;
+            goto MPP_TEST_OUT;
+        }
+
+        if (!data.hw_stat_nonzero_frames) {
+            mpp_err("HW statistic counters were zero for all frames\n");
             ret = MPP_NOK;
             goto MPP_TEST_OUT;
         }

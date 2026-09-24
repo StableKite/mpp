@@ -903,6 +903,19 @@ MPP_RET vdpu34x_h264d_start(void *hal, HalTaskInfo *task)
             break;
         }
 
+        if (p_hal->cfg->cfg->base.enable_hw_stat &&
+            mpp_get_soc_type() == ROCKCHIP_SOC_RK3588) {
+            rd_cfg.reg = &regs->statistic;
+            rd_cfg.size = sizeof(regs->statistic);
+            rd_cfg.offset = VDPU34X_OFF_STATISTIC_REGS;
+
+            ret = mpp_dev_ioctl(dev, MPP_DEV_REG_RD, &rd_cfg);
+            if (ret) {
+                mpp_err_f("set statistic read failed %d\n", ret);
+                break;
+            }
+        }
+
         /* rcb info for sram */
         vdpu34x_set_rcbinfo(dev, reg_ctx->rcb_info);
 
@@ -988,6 +1001,26 @@ __SKIP_HARD:
 
         vdpu34x_h264d_export_colmv(p_hal, task, p_regs,
                                    colmv_valid);
+    }
+
+    if (p_hal->cfg->cfg->base.enable_hw_stat &&
+        mpp_get_soc_type() == ROCKCHIP_SOC_RK3588) {
+        RK_U32 stat_valid =
+            !task->dec.flags.parse_err &&
+            !(task->dec.flags.ref_err &&
+              !p_hal->cfg->cfg->base.disable_error) &&
+            ret == MPP_OK &&
+            !p_regs->irq_status.reg224.dec_error_sta &&
+            p_regs->irq_status.reg224.dec_rdy_sta &&
+            !p_regs->irq_status.reg224.buf_empty_sta &&
+            !p_regs->irq_status.reg226.strmd_error_status &&
+            !p_regs->irq_status.reg227.colmv_error_ref_picidx &&
+            !p_regs->irq_status.reg225.strmd_detect_error_flag;
+
+        if (vdpu34x_export_statistic(p_hal->cfg->frame_slots,
+                                     task->dec.output,
+                                     &p_regs->statistic, stat_valid))
+            mpp_err_f("failed to export decoder HW statistics\n");
     }
 
     if (p_hal->cfg->dec_cb) {

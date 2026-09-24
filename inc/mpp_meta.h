@@ -46,6 +46,18 @@ typedef enum MppDecColmvFormat_e {
     MPP_DEC_COLMV_FMT_BUTT,
 } MppDecColmvFormat;
 
+/*
+ * Version of opt-in per-frame decoder hardware statistics.
+ *
+ * Statistic values are copied from hardware result registers after a
+ * successful decode. They are frame-local raw hardware counters; MPP does
+ * not convert counter values to time or bandwidth rates.
+ */
+typedef enum MppDecHwStatVersion_e {
+    MPP_DEC_HW_STAT_VERSION_NONE = 0,
+    MPP_DEC_HW_STAT_VERSION_1    = 1,
+} MppDecHwStatVersion;
+
 typedef enum MppMetaKey_e {
     /* data flow key */
     KEY_INPUT_FRAME             = FOURCC_META('i', 'f', 'r', 'm'),
@@ -173,6 +185,34 @@ typedef enum MppMetaKey_e {
     KEY_DEC_COLMV_FMT           = FOURCC_META('d', 'c', 'm', 'f'),
     /* Number of valid bytes in KEY_DEC_COLMV for this frame. */
     KEY_DEC_COLMV_SIZE          = FOURCC_META('d', 'c', 'm', 's'),
+
+    /*
+     * Opt-in per-frame decoder hardware statistics.
+     *
+     * VERSION is s32. Counter values are s64 so unsigned 32-bit hardware
+     * counters are represented without signed overflow. Pixel min/max values
+     * are s32. VERSION_NONE means that no valid result is available.
+     */
+    KEY_DEC_HW_STAT_VERSION     = FOURCC_META('d', 's', 'v', 'r'),
+    KEY_DEC_HW_STAT_RD_MAX_LATENCY
+                                = FOURCC_META('d', 's', 'm', 'l'),
+    KEY_DEC_HW_STAT_RD_LATENCY_THR_COUNT
+                                = FOURCC_META('d', 's', 't', 'c'),
+    KEY_DEC_HW_STAT_RD_LATENCY_ACC_SUM
+                                = FOURCC_META('d', 's', 'l', 'a'),
+    KEY_DEC_HW_STAT_RD_AXI_BYTES
+                                = FOURCC_META('d', 's', 'r', 'b'),
+    KEY_DEC_HW_STAT_WR_AXI_BYTES
+                                = FOURCC_META('d', 's', 'w', 'b'),
+    KEY_DEC_HW_STAT_WORKING_COUNT
+                                = FOURCC_META('d', 's', 'w', 'c'),
+    KEY_DEC_HW_STAT_Y_MIN       = FOURCC_META('d', 's', 'y', 'n'),
+    KEY_DEC_HW_STAT_Y_MAX       = FOURCC_META('d', 's', 'y', 'x'),
+    KEY_DEC_HW_STAT_U_MIN       = FOURCC_META('d', 's', 'u', 'n'),
+    KEY_DEC_HW_STAT_U_MAX       = FOURCC_META('d', 's', 'u', 'x'),
+    KEY_DEC_HW_STAT_V_MIN       = FOURCC_META('d', 's', 'v', 'n'),
+    KEY_DEC_HW_STAT_V_MAX       = FOURCC_META('d', 's', 'v', 'x'),
+    KEY_DEC_HW_STAT_ERR_SPREAD  = FOURCC_META('d', 's', 'e', 'r'),
 
     /* combo frame */
     KEY_COMBO_FRAME             = FOURCC_META('c', 'f', 'r', 'm'),

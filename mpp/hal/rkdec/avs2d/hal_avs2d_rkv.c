@@ -984,6 +984,14 @@ MPP_RET hal_avs2d_rkv_wait(void *hal, HalTaskInfo *task)
         if (p_hal->cfg->cfg->base.enable_colmv)
             hal_avs2d_rkv_export_colmv(p_hal, task, 0);
 
+        if (p_hal->cfg->cfg->base.enable_hw_stat &&
+            mpp_get_soc_type() == ROCKCHIP_SOC_RK3588) {
+            if (vdpu34x_export_statistic(p_hal->cfg->frame_slots,
+                                         task->dec.output,
+                                         &p_regs->statistic, 0))
+                mpp_err_f("failed to clear decoder HW statistics\n");
+        }
+
         goto __RETURN;
     } else {
         ret = mpp_dev_ioctl(p_hal->cfg->dev, MPP_DEV_CMD_POLL, NULL);
@@ -1005,6 +1013,26 @@ MPP_RET hal_avs2d_rkv_wait(void *hal, HalTaskInfo *task)
             !p_regs->irq_status.reg225.strmd_detect_error_flag;
 
         hal_avs2d_rkv_export_colmv(p_hal, task, colmv_valid);
+    }
+
+    if (p_hal->cfg->cfg->base.enable_hw_stat &&
+        mpp_get_soc_type() == ROCKCHIP_SOC_RK3588) {
+        RK_U32 stat_valid =
+            ret == MPP_OK &&
+            !task->dec.flags.parse_err &&
+            !(task->dec.flags.ref_err &&
+              !p_hal->cfg->cfg->base.disable_error) &&
+            !p_regs->irq_status.reg224.dec_error_sta &&
+            p_regs->irq_status.reg224.dec_rdy_sta &&
+            !p_regs->irq_status.reg224.buf_empty_sta &&
+            !p_regs->irq_status.reg226.strmd_error_status &&
+            !p_regs->irq_status.reg227.colmv_error_ref_picidx &&
+            !p_regs->irq_status.reg225.strmd_detect_error_flag;
+
+        if (vdpu34x_export_statistic(p_hal->cfg->frame_slots,
+                                     task->dec.output,
+                                     &p_regs->statistic, stat_valid))
+            mpp_err_f("failed to export decoder HW statistics\n");
     }
 
     if (hal_avs2d_debug & AVS2D_HAL_DBG_OUT)

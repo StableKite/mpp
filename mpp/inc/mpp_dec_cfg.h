@@ -54,6 +54,7 @@ typedef struct MppDecBaseCfg_t {
     RK_U32              enable_fast_play;
     RK_U32              enable_hdr_meta;
     RK_U32              enable_colmv;      /* export raw decoder COLMV metadata */
+    RK_U32              enable_hw_stat;    /* export decoder hardware statistics */
     RK_U32              enable_thumbnail;
     RK_U32              enable_mvc;
     RK_U32              disable_dpb_chk;
