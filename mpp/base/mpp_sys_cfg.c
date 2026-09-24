@@ -73,6 +73,21 @@
     ENTRY(prefix, u32, RK_U32,          size_metadata,      FLAG_NONE,      dec_buf_chk, size_metadata) \
     ENTRY(prefix, u32, RK_U32,          size_thumbnail,     FLAG_NONE,      dec_buf_chk, size_thumbnail) \
     STRUCT_END(dec_buf_chk) \
+    STRUCT_START(dec_cap) \
+    ENTRY(prefix, u32, RK_U32,          enable,             FLAG_BASE(0),   dec_cap, enable) \
+    ENTRY(prefix, u32, MppCodingType,   type,               FLAG_INCR,      dec_cap, type) \
+    /* read-only decoder capability query results */ \
+    ENTRY(prefix, u32, RK_U32,          version,            FLAG_NONE,      dec_cap, version) \
+    ENTRY(prefix, u32, RK_U32,          supported,          FLAG_NONE,      dec_cap, supported) \
+    ENTRY(prefix, u32, RK_U32,          features,           FLAG_NONE,      dec_cap, features) \
+    ENTRY(prefix, u32, RK_U32,          core_num,           FLAG_NONE,      dec_cap, core_num) \
+    ENTRY(prefix, u32, RK_U32,          cap_fbc,            FLAG_NONE,      dec_cap, cap_fbc) \
+    ENTRY(prefix, u32, RK_U32,          cap_4k,             FLAG_NONE,      dec_cap, cap_4k) \
+    ENTRY(prefix, u32, RK_U32,          cap_8k,             FLAG_NONE,      dec_cap, cap_8k) \
+    ENTRY(prefix, u32, RK_U32,          cap_10bit,          FLAG_NONE,      dec_cap, cap_10bit) \
+    ENTRY(prefix, u32, RK_U32,          cap_colmv_compress, FLAG_NONE,      dec_cap, cap_colmv_compress) \
+    ENTRY(prefix, u32, RK_U32,          cap_down_scale,     FLAG_NONE,      dec_cap, cap_down_scale) \
+    STRUCT_END(dec_cap) \
     CFG_DEF_END()
 
 #define KMPP_OBJ_NAME               mpp_sys_cfg
@@ -511,9 +526,91 @@ MPP_RET mpp_sys_dec_buf_chk_proc(MppSysDecBufChkCfg *cfg)
     return MPP_OK;
 }
 
+static RK_U32 mpp_sys_dec_cap_get_features(MppCodingType type,
+                                               const MppDecHwCap *cap)
+{
+    RK_U32 features = 0;
+
+    if (cap->cap_down_scale)
+        features |= MPP_DEC_CAP_FEATURE_THUMBNAIL;
+
+    if (cap->cap_core_num > 1)
+        features |= MPP_DEC_CAP_FEATURE_MULTICORE;
+
+    /*
+     * Raw COLMV metadata and VDPU34x hardware statistics are public
+     * decoder APIs implemented on the RK3588 RKVDEC path.
+     */
+    if (mpp_get_soc_type() == ROCKCHIP_SOC_RK3588 &&
+        cap->type == VPU_CLIENT_RKVDEC) {
+        switch (type) {
+        case MPP_VIDEO_CodingAVC:
+        case MPP_VIDEO_CodingHEVC:
+        case MPP_VIDEO_CodingVP9:
+        case MPP_VIDEO_CodingAVS2:
+            features |= MPP_DEC_CAP_FEATURE_COLMV_META;
+            features |= MPP_DEC_CAP_FEATURE_HW_STAT;
+            break;
+        default:
+            break;
+        }
+    }
+
+    return features;
+}
+
+static MPP_RET mpp_sys_dec_cap_proc(MppSysDecCapCfg *cfg)
+{
+    const MppSocInfo *soc_info = mpp_get_soc_info();
+    RK_S32 index = mpp_coding_to_index(cfg->type);
+    RK_U32 coding_bit = 0;
+    RK_U32 i = 0;
+
+    cfg->version = MPP_DEC_CAP_VERSION_1;
+    cfg->supported = 0;
+    cfg->features = 0;
+    cfg->core_num = 0;
+    cfg->cap_fbc = 0;
+    cfg->cap_4k = 0;
+    cfg->cap_8k = 0;
+    cfg->cap_10bit = 0;
+    cfg->cap_colmv_compress = 0;
+    cfg->cap_down_scale = 0;
+
+    if (!soc_info)
+        return MPP_NOK;
+
+    if (index <= 0 || index >= 32)
+        return MPP_ERR_VALUE;
+
+    coding_bit = 1U << index;
+
+    for (i = 0; i < MPP_ARRAY_ELEMS(soc_info->dec_caps); i++) {
+        const MppDecHwCap *cap = soc_info->dec_caps[i];
+
+        if (!cap || !(cap->cap_coding & coding_bit))
+            continue;
+
+        cfg->supported = 1;
+        cfg->features |= mpp_sys_dec_cap_get_features(cfg->type, cap);
+        cfg->cap_fbc |= cap->cap_fbc;
+        cfg->cap_4k |= cap->cap_4k;
+        cfg->cap_8k |= cap->cap_8k;
+        cfg->cap_10bit |= cap->cap_10bit;
+        cfg->cap_colmv_compress |= cap->cap_colmv_compress;
+        cfg->cap_down_scale |= cap->cap_down_scale;
+
+        if (cfg->core_num < cap->cap_core_num)
+            cfg->core_num = cap->cap_core_num;
+    }
+
+    return MPP_OK;
+}
+
 MPP_RET mpp_sys_cfg_ioctl(MppSysCfg cfg)
 {
     MppSysCfgSet *p = (MppSysCfgSet *)kmpp_obj_to_entry(cfg);
+    MPP_RET ret = MPP_OK;
 
     if (!p) {
         mpp_loge_f("invalid NULL input config\n");
@@ -525,7 +622,12 @@ MPP_RET mpp_sys_cfg_ioctl(MppSysCfg cfg)
         p->dec_buf_chk.enable = 0;
     }
 
-    return MPP_OK;
+    if (p->dec_cap.enable) {
+        ret = mpp_sys_dec_cap_proc(&p->dec_cap);
+        p->dec_cap.enable = 0;
+    }
+
+    return ret;
 }
 
 #define MPP_CFG_SET_ACCESS(func_name, in_type, cfg_type) \

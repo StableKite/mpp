@@ -59,8 +59,27 @@ typedef struct MppSysBaseCfg_t {
     RK_U32 size_thumbnail;
 } MppSysDecBufChkCfg;
 
+typedef struct MppSysDecCapCfg_t {
+    /* input */
+    RK_U32 enable;
+    MppCodingType type;
+
+    /* output */
+    RK_U32 version;
+    RK_U32 supported;
+    RK_U32 features;
+    RK_U32 core_num;
+    RK_U32 cap_fbc;
+    RK_U32 cap_4k;
+    RK_U32 cap_8k;
+    RK_U32 cap_10bit;
+    RK_U32 cap_colmv_compress;
+    RK_U32 cap_down_scale;
+} MppSysDecCapCfg;
+
 typedef struct MppSysCfgSet_t {
     MppSysDecBufChkCfg dec_buf_chk;
+    MppSysDecCapCfg dec_cap;
 } MppSysCfgSet;
 
 #ifdef __cplusplus

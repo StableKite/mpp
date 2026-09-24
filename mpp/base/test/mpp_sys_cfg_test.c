@@ -28,6 +28,10 @@ int main(void)
     RK_U32 size_total;
     RK_U32 size_fbc_hdr;
     RK_U32 size_fbc_bdy;
+    RK_U32 cap_version = 0;
+    RK_U32 cap_supported = 0;
+    RK_U32 cap_features = 0;
+    RK_U32 cap_core_num = 0;
 
     mpp_sys_cfg_show();
 
@@ -68,6 +72,68 @@ int main(void)
     ret = mpp_sys_cfg_get_u32(cfg, "dec_buf_chk:size_total", &size_total);
     ret = mpp_sys_cfg_get_u32(cfg, "dec_buf_chk:size_fbc_hdr", &size_fbc_hdr);
     ret = mpp_sys_cfg_get_u32(cfg, "dec_buf_chk:size_fbc_bdy", &size_fbc_bdy);
+
+    /* decoder capability query */
+    ret = mpp_sys_cfg_set_u32(cfg, "dec_cap:type", type);
+    if (ret) {
+        mpp_err("set dec_cap:type failed\n");
+        goto DONE;
+    }
+
+    ret = mpp_sys_cfg_set_u32(cfg, "dec_cap:enable", 1);
+    if (ret) {
+        mpp_err("set dec_cap:enable failed\n");
+        goto DONE;
+    }
+
+    ret = mpp_sys_cfg_ioctl(cfg);
+    if (ret) {
+        mpp_err("dec_cap ioctl failed\n");
+        goto DONE;
+    }
+
+    ret = mpp_sys_cfg_get_u32(cfg, "dec_cap:version", &cap_version);
+    if (ret)
+        goto DONE;
+
+    ret = mpp_sys_cfg_get_u32(cfg, "dec_cap:supported", &cap_supported);
+    if (ret)
+        goto DONE;
+
+    ret = mpp_sys_cfg_get_u32(cfg, "dec_cap:features", &cap_features);
+    if (ret)
+        goto DONE;
+
+    ret = mpp_sys_cfg_get_u32(cfg, "dec_cap:core_num", &cap_core_num);
+    if (ret)
+        goto DONE;
+
+    if (cap_version != MPP_DEC_CAP_VERSION_1) {
+        mpp_err("invalid dec_cap version %u\n", cap_version);
+        ret = MPP_NOK;
+        goto DONE;
+    }
+
+    if ((cap_supported && !cap_core_num) ||
+        (!cap_supported && cap_core_num)) {
+        mpp_err("invalid dec_cap support %u core_num %u\n",
+                cap_supported, cap_core_num);
+        ret = MPP_NOK;
+        goto DONE;
+    }
+
+    mpp_log("dec cap version %u supported %u features %08x core_num %u\n",
+            cap_version, cap_supported, cap_features, cap_core_num);
+
+    /* all query outputs must remain read-only */
+    ret = mpp_sys_cfg_set_u32(cfg, "dec_cap:version", 0);
+    if (!ret) {
+        mpp_log("set dec_cap readonly success, should be a failure\n");
+        ret = MPP_NOK;
+        goto DONE;
+    }
+
+    ret = MPP_OK;
 
     ret = mpp_sys_cfg_put(cfg);
     if (ret) {
