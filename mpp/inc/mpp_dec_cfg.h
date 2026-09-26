@@ -88,10 +88,15 @@ typedef struct MppDecStatusCfg_t {
     RK_U32              vproc_task_count;
 } MppDecStatusCfg;
 
+typedef struct MppDecAv1Cfg_t {
+    RK_U32              operating_point;
+} MppDecAv1Cfg;
+
 typedef struct MppDecCfgSet_t {
     MppDecBaseCfg       base;
     MppDecStatusCfg     status;
     MppDecCbCfg         cb;
+    MppDecAv1Cfg        av1;
 } MppDecCfgSet;
 
 #ifdef __cplusplus

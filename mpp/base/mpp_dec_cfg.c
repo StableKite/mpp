@@ -64,6 +64,9 @@
     ENTRY(prefix, ptr, void *,     frm_rdy_ctx,         FLAG_PREV,      cb, frm_rdy_ctx) \
     ENTRY(prefix, s32, rk_s32,     frm_rdy_cmd,         FLAG_PREV,      cb, frm_rdy_cmd) \
     STRUCT_END(cb) \
+    STRUCT_START(av1) \
+    ENTRY(prefix, u32, rk_u32,     operating_point,     FLAG_BASE(0),   av1, operating_point) \
+    STRUCT_END(av1) \
     CFG_DEF_END()
 
 rk_s32 mpp_dec_cfg_set_default(void *entry, KmppObj obj, const char *caller)
@@ -80,6 +83,7 @@ rk_s32 mpp_dec_cfg_set_default(void *entry, KmppObj obj, const char *caller)
     cfg->base.enable_fast_play = MPP_ENABLE_FAST_PLAY;
 #endif
     cfg->base.meta_chk_len = MPP_DEC_META_CHK_LEN_DEFAULT;
+    cfg->av1.operating_point = 0;
     (void) obj;
     (void) caller;
 

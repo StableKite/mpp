@@ -30,6 +30,7 @@ int main(void)
     MppDecCfg cfg;
     RK_S64 end = 0;
     RK_S64 start = 0;
+    RK_U32 operating_point = 0;
 
     mpp_dec_cfg_show();
 
@@ -46,6 +47,27 @@ int main(void)
     MppDecCfgSet *impl = (MppDecCfgSet *)cfg;
 
     mpp_log("before set: fast_out %d\n", impl->base.fast_out);
+
+    ret = mpp_dec_cfg_get_u32(cfg, "av1:operating_point", &operating_point);
+    if (ret || operating_point) {
+        mpp_err("invalid av1 operating point default %u ret %d\n",
+                operating_point, ret);
+        goto DONE;
+    }
+
+    ret = mpp_dec_cfg_set_u32(cfg, "av1:operating_point", 3);
+    if (ret) {
+        mpp_err("set av1 operating point failed %d\n", ret);
+        goto DONE;
+    }
+
+    ret = mpp_dec_cfg_get_u32(cfg, "av1:operating_point", &operating_point);
+    if (ret || operating_point != 3) {
+        mpp_err("invalid av1 operating point %u ret %d\n",
+                operating_point, ret);
+        ret = MPP_NOK;
+        goto DONE;
+    }
 
     start = mpp_time();
     ret = mpp_dec_cfg_set_u32(cfg, "base:fast_out", fast_out);

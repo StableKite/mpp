@@ -1162,6 +1162,13 @@ MPP_RET av1d_parser_frame(Av1DecCtx *ctx, HalDecTask *task)
     av1d_dbg_func("enter ctx %p\n", ctx);
     task->valid = 0;
 
+    if (ctx->cfg->av1.operating_point >= AV1_MAX_OPERATING_POINTS) {
+        mpp_err_f("Invalid operating point %u, valid range is 0..%u.\n",
+                  ctx->cfg->av1.operating_point, AV1_MAX_OPERATING_POINTS - 1);
+        return MPP_ERR_VALUE;
+    }
+    s->operating_point = ctx->cfg->av1.operating_point;
+
     data = (RK_U8 *)mpp_packet_get_pos(ctx->pkt);
     size = (RK_S32)mpp_packet_get_length(ctx->pkt);
 
