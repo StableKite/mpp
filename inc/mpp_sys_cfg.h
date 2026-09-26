@@ -77,9 +77,32 @@ typedef struct MppSysDecCapCfg_t {
     RK_U32 cap_down_scale;
 } MppSysDecCapCfg;
 
+/*
+ * Encoder motion-information preflight query.
+ *
+ * Set enc_minfo:type / width / height / enable then call mpp_sys_cfg_ioctl().
+ * buffer_size is the minimum safe DMA destination capacity while data_size is
+ * the valid byte count in the documented raw layout returned on the packet.
+ */
+typedef struct MppSysEncMotionInfoCfg_t {
+    RK_U32 enable;
+    MppCodingType type;
+    RK_U32 width;
+    RK_U32 height;
+    RK_U32 version;
+    RK_U32 supported;
+    RK_U32 format;
+    RK_U32 buffer_size;
+    RK_U32 data_size;
+    RK_U32 block_width;
+    RK_U32 block_height;
+    RK_U32 record_size;
+} MppSysEncMotionInfoCfg;
+
 typedef struct MppSysCfgSet_t {
     MppSysDecBufChkCfg dec_buf_chk;
     MppSysDecCapCfg dec_cap;
+    MppSysEncMotionInfoCfg enc_minfo;
 } MppSysCfgSet;
 
 #ifdef __cplusplus

@@ -112,6 +112,9 @@ static inline RK_U64 META_KEY_TO_U64(RK_U32 key, RK_U32 type)
     ENTRY(KEY_OUTPUT_PACKET,        TYPE_SPTR) \
     /* buffer for motion detection */ \
     ENTRY(KEY_MOTION_INFO,          TYPE_SPTR) \
+    ENTRY(KEY_MOTION_INFO_VERSION,  TYPE_VAL_32) \
+    ENTRY(KEY_MOTION_INFO_FMT,      TYPE_VAL_32) \
+    ENTRY(KEY_MOTION_INFO_SIZE,     TYPE_VAL_32) \
     /* buffer storing the HDR information for current frame*/ \
     ENTRY(KEY_HDR_INFO,             TYPE_SPTR) \
     /* the offset of HDR meta data in frame buffer */ \

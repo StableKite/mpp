@@ -21,6 +21,47 @@
 #define VEPU580_DBG_OFFSET              (5120 * sizeof(RK_U32))
 #define VEPU580_REG_BASE_HW_STATUS      0x2c
 
+static inline MppEncMotionInfoFormat vepu580_motion_info_format(MppCodingType coding)
+{
+    switch (coding) {
+    case MPP_VIDEO_CodingAVC :
+        return MPP_ENC_MOTION_INFO_FMT_VEPU580_H264;
+    case MPP_VIDEO_CodingHEVC :
+        return MPP_ENC_MOTION_INFO_FMT_VEPU580_H265;
+    default :
+        return MPP_ENC_MOTION_INFO_FMT_NONE;
+    }
+}
+
+static inline RK_U32 vepu580_motion_info_size(MppCodingType coding, RK_U32 width, RK_U32 height)
+{
+    RK_U32 width64 = (width + 63) >> 6;
+
+    switch (coding) {
+    case MPP_VIDEO_CodingAVC :
+        return width64 * ((height + 15) >> 4) * 8;
+    case MPP_VIDEO_CodingHEVC :
+        return width64 * ((height + 63) >> 6) * 32;
+    default :
+        return 0;
+    }
+}
+
+static inline RK_U32 vepu580_motion_info_buf_size(MppCodingType coding, RK_U32 width, RK_U32 height)
+{
+    RK_U32 width64 = (width + 63) >> 6;
+    RK_U32 height64 = (height + 63) >> 6;
+
+    switch (coding) {
+    case MPP_VIDEO_CodingAVC :
+        return width64 * ((height + 15) >> 4) * 8;
+    case MPP_VIDEO_CodingHEVC :
+        return width64 * height64 * 32;
+    default :
+        return 0;
+    }
+}
+
 #define vepu580_h264e_get_dbg_regs(dev, regs, ret_acc) do { \
     MppDevRegRdCfg _rd_cfg; \
     VEPU_REG_RD(dev, regs, reg_ctl,    VEPU580_CTL_OFFSET,         ret_acc); \

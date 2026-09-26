@@ -22,6 +22,7 @@
 #include "mpp_soc.h"
 #include "mpp_trie.h"
 #include "mpp_sys_cfg.h"
+#include "rk_venc_cmd.h"
 #include "mpp_mem_pool.h"
 #include "mpp_compat_impl.h"
 
@@ -88,6 +89,20 @@
     ENTRY(prefix, u32, RK_U32,          cap_colmv_compress, FLAG_NONE,      dec_cap, cap_colmv_compress) \
     ENTRY(prefix, u32, RK_U32,          cap_down_scale,     FLAG_NONE,      dec_cap, cap_down_scale) \
     STRUCT_END(dec_cap) \
+    STRUCT_START(enc_minfo) \
+    ENTRY(prefix, u32, RK_U32,          enable,             FLAG_BASE(0),   enc_minfo, enable) \
+    ENTRY(prefix, u32, MppCodingType,   type,               FLAG_INCR,      enc_minfo, type) \
+    ENTRY(prefix, u32, RK_U32,          width,              FLAG_INCR,      enc_minfo, width) \
+    ENTRY(prefix, u32, RK_U32,          height,             FLAG_INCR,      enc_minfo, height) \
+    ENTRY(prefix, u32, RK_U32,          version,            FLAG_NONE,      enc_minfo, version) \
+    ENTRY(prefix, u32, RK_U32,          supported,          FLAG_NONE,      enc_minfo, supported) \
+    ENTRY(prefix, u32, RK_U32,          format,             FLAG_NONE,      enc_minfo, format) \
+    ENTRY(prefix, u32, RK_U32,          buffer_size,        FLAG_NONE,      enc_minfo, buffer_size) \
+    ENTRY(prefix, u32, RK_U32,          data_size,          FLAG_NONE,      enc_minfo, data_size) \
+    ENTRY(prefix, u32, RK_U32,          block_width,        FLAG_NONE,      enc_minfo, block_width) \
+    ENTRY(prefix, u32, RK_U32,          block_height,       FLAG_NONE,      enc_minfo, block_height) \
+    ENTRY(prefix, u32, RK_U32,          record_size,        FLAG_NONE,      enc_minfo, record_size) \
+    STRUCT_END(enc_minfo) \
     CFG_DEF_END()
 
 #define KMPP_OBJ_NAME               mpp_sys_cfg
@@ -607,6 +622,66 @@ static MPP_RET mpp_sys_dec_cap_proc(MppSysDecCapCfg *cfg)
     return MPP_OK;
 }
 
+static MPP_RET mpp_sys_enc_minfo_proc(MppSysEncMotionInfoCfg *cfg)
+{
+    const RK_U64 max_u32 = (RK_U64)(~(RK_U32)0);
+    RK_U64 width64;
+    RK_U64 height64;
+    RK_U64 height16;
+    RK_U64 buffer_size = 0;
+    RK_U64 data_size = 0;
+
+    cfg->version = MPP_ENC_MOTION_INFO_VERSION_1;
+    cfg->supported = 0;
+    cfg->format = MPP_ENC_MOTION_INFO_FMT_NONE;
+    cfg->buffer_size = 0;
+    cfg->data_size = 0;
+    cfg->block_width = 0;
+    cfg->block_height = 0;
+    cfg->record_size = 0;
+
+    if (!cfg->width || !cfg->height)
+        return MPP_ERR_VALUE;
+
+    /* Public layout evidence collected for VEPU580 on RK3588 only. */
+    if (mpp_get_soc_type() != ROCKCHIP_SOC_RK3588)
+        return MPP_OK;
+
+    width64 = ((RK_U64)cfg->width + 63) >> 6;
+    height64 = ((RK_U64)cfg->height + 63) >> 6;
+    height16 = ((RK_U64)cfg->height + 15) >> 4;
+
+    switch (cfg->type) {
+    case MPP_VIDEO_CodingAVC:
+        cfg->format = MPP_ENC_MOTION_INFO_FMT_VEPU580_H264;
+        cfg->block_width = 64;
+        cfg->block_height = 16;
+        cfg->record_size = 8;
+        data_size = width64 * height16 * 8;
+        buffer_size = data_size;
+        break;
+    case MPP_VIDEO_CodingHEVC:
+        cfg->format = MPP_ENC_MOTION_INFO_FMT_VEPU580_H265;
+        cfg->block_width = 32;
+        cfg->block_height = 32;
+        cfg->record_size = 8;
+        buffer_size = width64 * height64 * 32;
+        data_size = buffer_size;
+        break;
+    default:
+        return MPP_OK;
+    }
+
+    if (buffer_size > max_u32 || data_size > max_u32)
+        return MPP_ERR_VALUE;
+
+    cfg->supported = 1;
+    cfg->buffer_size = (RK_U32)buffer_size;
+    cfg->data_size = (RK_U32)data_size;
+
+    return MPP_OK;
+}
+
 MPP_RET mpp_sys_cfg_ioctl(MppSysCfg cfg)
 {
     MppSysCfgSet *p = (MppSysCfgSet *)kmpp_obj_to_entry(cfg);
@@ -625,6 +700,11 @@ MPP_RET mpp_sys_cfg_ioctl(MppSysCfg cfg)
     if (p->dec_cap.enable) {
         ret = mpp_sys_dec_cap_proc(&p->dec_cap);
         p->dec_cap.enable = 0;
+    }
+
+    if (!ret && p->enc_minfo.enable) {
+        ret = mpp_sys_enc_minfo_proc(&p->enc_minfo);
+        p->enc_minfo.enable = 0;
     }
 
     return ret;

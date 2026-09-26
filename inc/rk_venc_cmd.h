@@ -551,24 +551,54 @@ typedef struct MppEncPrepCfg_t {
 /*
  * Mpp Motion Detection parameter
  *
- * Mpp can output Motion Detection infomation for each frame.
- * If user euqueue a encode task with KEY_MOTION_INFO by following function
+ * Mpp can output Motion Detection information for each frame.
+ * If user enqueues an encode task with KEY_MOTION_INFO by following function
  * then encoder will output Motion Detection information to the buffer.
  *
  * mpp_task_meta_set_buffer(task, KEY_MOTION_INFO, buffer);
  *
- * Motion Detection information will be organized in this way:
- * 1. Each 16x16 block will have a 32 bit block information which contains
- *    15 bit SAD(Sum of Abstract Difference value
- *    9 bit signed horizontal motion vector
- *    8 bit signed vertical motion vector
- * 2. The sequence of MD information in the buffer is corresponding to the
- *    block position in the frame, left-to right, top-to-bottom.
- * 3. If the width of the frame is not a multiple of 256 pixels (16 macro
- *    blocks), DMA would extend the frame to a multiple of 256 pixels and
- *    the extended blocks' MD information are 32'h0000_0000.
- * 4. Buffer must be ion buffer and 1024 byte aligned.
+ * Motion information is hardware-generated and the raw layout depends on the
+ * encoder IP. On successful output MPP may attach KEY_MOTION_INFO_VERSION,
+ * KEY_MOTION_INFO_FMT and KEY_MOTION_INFO_SIZE to the output packet metadata.
+ * The SIZE value is the number of valid raw bytes described by FMT.
+ *
+ * MPP_ENC_MOTION_INFO_FMT_LEGACY_16X16 describes the historical layout below.
+ * VEPU580 (RK3588) does NOT use MppEncMDBlkInfo. Its two raw layouts are:
+ *
+ * H.264 / MPP_ENC_MOTION_INFO_FMT_VEPU580_H264
+ *   - one 64-bit record per 64x16 block, raster order;
+ *   - width is aligned to 64 and height to 16 for valid records.
+ *
+ * H.265 / MPP_ENC_MOTION_INFO_FMT_VEPU580_H265
+ *   - one 64-bit record per 32x32 block;
+ *   - picture is aligned to 64x64 CTUs, CTUs are raster ordered, and the four
+ *     32x32 records inside each CTU are also raster ordered.
+ *
+ * For both VEPU580 layouts the vendor-documented motion-vector fields in each
+ * raw 64-bit record are: cmv_x magnitude in bits 53:48 with sign in bit 54,
+ * and cmv_y magnitude in bits 59:55 with sign in bit 60. These cmv values are
+ * in whole-pixel units; multiply by four when expressing them in quarter-pixel
+ * units. Other bits are intentionally left opaque.
+ *
+ * KEY_MOTION_INFO keeps the existing caller-owned buffer lifetime. MPP does
+ * not transfer ownership of the supplied buffer. CPU readers of DMA-written
+ * motion data must bracket access with mpp_buffer_sync_ro_begin() and
+ * mpp_buffer_sync_ro_end().
  */
+typedef enum MppEncMotionInfoVersion_e {
+    MPP_ENC_MOTION_INFO_VERSION_NONE = 0,
+    MPP_ENC_MOTION_INFO_VERSION_1    = 1,
+} MppEncMotionInfoVersion;
+
+typedef enum MppEncMotionInfoFormat_e {
+    MPP_ENC_MOTION_INFO_FMT_NONE = 0,
+    MPP_ENC_MOTION_INFO_FMT_LEGACY_16X16,
+    MPP_ENC_MOTION_INFO_FMT_VEPU580_H264,
+    MPP_ENC_MOTION_INFO_FMT_VEPU580_H265,
+    MPP_ENC_MOTION_INFO_FMT_BUTT,
+} MppEncMotionInfoFormat;
+
+/* Historical 32-bit-per-16x16-block motion-information layout. */
 typedef struct MppEncMDBlkInfo_t {
     RK_U32              sad     : 15;   /* bit  0~14 - SAD */
     RK_S32              mvx     : 9;    /* bit 15~23 - signed horizontal mv */

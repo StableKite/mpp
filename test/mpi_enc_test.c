@@ -64,7 +64,9 @@ static RK_S32 get_mdinfo_size(MpiEncTestData *p, MppCodingType type)
                   (MPP_ALIGN(w, 32) >> 5) * (MPP_ALIGN(h, 32) >> 5) * 20 :
                   (MPP_ALIGN(w, 64) >> 6) * (MPP_ALIGN(h, 16) >> 4) * 16;
     } else if (soc_type == ROCKCHIP_SOC_RK3588) {
-        md_size = (MPP_ALIGN(w, 64) >> 6) * (MPP_ALIGN(h, 64) >> 6) * 32;
+        md_size = (MPP_VIDEO_CodingHEVC == type) ?
+                  (MPP_ALIGN(w, 64) >> 6) * (MPP_ALIGN(h, 64) >> 6) * 32 :
+                  (MPP_ALIGN(w, 64) >> 6) * (MPP_ALIGN(h, 16) >> 4) * 8;
     } else {
         md_size = (MPP_VIDEO_CodingHEVC == type) ?
                   (MPP_ALIGN(w, 32) >> 5) * (MPP_ALIGN(h, 32) >> 5) * 16 :

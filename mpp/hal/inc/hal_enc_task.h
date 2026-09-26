@@ -92,6 +92,9 @@ typedef struct HalEncTask_t {
 
     // current md info output buffer
     MppBuffer       md_info;
+    MppBuffer       md_info_user;
+    RK_U32          md_info_fmt;
+    RK_U32          md_info_size;
 
     // low delay mode part output information
     RK_U32          part_first;

@@ -2125,6 +2125,20 @@ static MPP_RET hal_h264e_vepu580_gen_regs(void *hal, HalEncTask *task)
     setup_vepu580_roi(regs, ctx);
     setup_vepu580_recn_refr(ctx, regs);
 
+    if (task->md_info) {
+        RK_U32 width = (regs->reg_base.common.enc_rsl.pic_wd8_m1 + 1) << 3;
+        RK_U32 height = (regs->reg_base.common.enc_rsl.pic_hd8_m1 + 1) << 3;
+        RK_U32 buf_size = vepu580_motion_info_buf_size(MPP_VIDEO_CodingAVC, width, height);
+
+        task->md_info_fmt = vepu580_motion_info_format(MPP_VIDEO_CodingAVC);
+        task->md_info_size = vepu580_motion_info_size(MPP_VIDEO_CodingAVC, width, height);
+        if (mpp_buffer_get_size(task->md_info) < buf_size) {
+            mpp_err_f("motion info buffer too small %zu < %u\n",
+                      mpp_buffer_get_size(task->md_info), buf_size);
+            return MPP_ERR_BUFFER_FULL;
+        }
+    }
+
     regs->reg_base.common.meiw_addr = task->md_info ? mpp_buffer_get_fd(task->md_info) : 0;
     regs->reg_base.common.enc_pic.mei_stor = task->md_info ? 1 : 0;
     regs->reg_base.common.pic_ofst.pic_ofst_y = mpp_frame_get_offset_y(task->frame);

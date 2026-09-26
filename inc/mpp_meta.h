@@ -66,6 +66,9 @@ typedef enum MppMetaKey_e {
     KEY_OUTPUT_PACKET           = FOURCC_META('o', 'p', 'k', 't'),
     /* output motion information for motion detection */
     KEY_MOTION_INFO             = FOURCC_META('m', 'v', 'i', 'f'),
+    KEY_MOTION_INFO_VERSION     = FOURCC_META('m', 'v', 'v', 'r'),
+    KEY_MOTION_INFO_FMT         = FOURCC_META('m', 'v', 'f', 'm'),
+    KEY_MOTION_INFO_SIZE        = FOURCC_META('m', 'v', 's', 'z'),
     KEY_HDR_INFO                = FOURCC_META('h', 'd', 'r', ' '),
     KEY_HDR_META_OFFSET         = FOURCC_META('h', 'd', 'r', 'o'),
     KEY_HDR_META_SIZE           = FOURCC_META('h', 'd', 'r', 'l'),

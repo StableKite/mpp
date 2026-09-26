@@ -19,6 +19,35 @@ typedef enum MppCfgStrFmt_e {
 typedef void* MppSysCfg;
 
 /*
+ * Encoder motion-information preflight query through MppSysCfg.
+ *
+ * This query is intended to run before allocating the caller-owned
+ * KEY_MOTION_INFO output buffer.
+ *
+ * Input keys:
+ *   enc_minfo:type             u32 MppCodingType
+ *   enc_minfo:width            u32 encoded picture width
+ *   enc_minfo:height           u32 encoded picture height
+ *   enc_minfo:enable           u32, set to 1 before mpp_sys_cfg_ioctl()
+ *
+ * Read-only output keys:
+ *   enc_minfo:version
+ *   enc_minfo:supported
+ *   enc_minfo:format
+ *   enc_minfo:buffer_size
+ *   enc_minfo:data_size
+ *   enc_minfo:block_width
+ *   enc_minfo:block_height
+ *   enc_minfo:record_size
+ *
+ * buffer_size is the minimum safe DMA destination capacity. data_size is the
+ * valid byte count in the documented raw layout and may be smaller.
+ *
+ * format uses MppEncMotionInfoFormat from rk_venc_cmd.h. Version 1 currently
+ * reports the publicly documented RK3588 VEPU580 AVC / HEVC raw layouts.
+ */
+
+/*
  * Decoder capability query through MppSysCfg.
  *
  * Input keys:

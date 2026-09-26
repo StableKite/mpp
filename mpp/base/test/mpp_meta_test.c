@@ -63,6 +63,9 @@ static MPP_RET meta_set(MppMeta meta)
     ret |= mpp_meta_set_packet(meta, KEY_OUTPUT_PACKET, NULL);
 
     ret |= mpp_meta_set_buffer(meta, KEY_MOTION_INFO, NULL);
+    ret |= mpp_meta_set_s32(meta, KEY_MOTION_INFO_VERSION, MPP_ENC_MOTION_INFO_VERSION_1);
+    ret |= mpp_meta_set_s32(meta, KEY_MOTION_INFO_FMT, MPP_ENC_MOTION_INFO_FMT_VEPU580_H264);
+    ret |= mpp_meta_set_s32(meta, KEY_MOTION_INFO_SIZE, 1024);
     ret |= mpp_meta_set_buffer(meta, KEY_HDR_INFO, NULL);
 
     ret |= mpp_meta_set_s32(meta, KEY_INPUT_BLOCK, 0);
@@ -108,6 +111,9 @@ static MPP_RET meta_get(MppMeta meta)
     ret |= mpp_meta_get_packet(meta, KEY_OUTPUT_PACKET, &packet);
 
     ret |= mpp_meta_get_buffer(meta, KEY_MOTION_INFO, &buffer);
+    ret |= mpp_meta_get_s32(meta, KEY_MOTION_INFO_VERSION, &val);
+    ret |= mpp_meta_get_s32(meta, KEY_MOTION_INFO_FMT, &val);
+    ret |= mpp_meta_get_s32(meta, KEY_MOTION_INFO_SIZE, &val);
     ret |= mpp_meta_get_buffer(meta, KEY_HDR_INFO, &buffer);
 
     ret |= mpp_meta_get_s32(meta, KEY_INPUT_BLOCK, &val);

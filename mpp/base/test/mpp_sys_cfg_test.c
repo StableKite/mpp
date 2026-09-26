@@ -11,6 +11,7 @@
 #include "mpp_common.h"
 
 #include "rk_mpp_cfg.h"
+#include "rk_venc_cmd.h"
 #include "mpp_sys_cfg.h"
 
 int main(void)
@@ -32,6 +33,12 @@ int main(void)
     RK_U32 cap_supported = 0;
     RK_U32 cap_features = 0;
     RK_U32 cap_core_num = 0;
+    RK_U32 mi_version = 0;
+    RK_U32 mi_supported = 0;
+    RK_U32 mi_format = 0;
+    RK_U32 mi_buffer_size = 0;
+    RK_U32 mi_data_size = 0;
+    RK_U32 mi_enable = 1;
 
     mpp_sys_cfg_show();
 
@@ -129,6 +136,69 @@ int main(void)
     ret = mpp_sys_cfg_set_u32(cfg, "dec_cap:version", 0);
     if (!ret) {
         mpp_log("set dec_cap readonly success, should be a failure\n");
+        ret = MPP_NOK;
+        goto DONE;
+    }
+
+    ret = mpp_sys_cfg_set_u32(cfg, "enc_minfo:type", MPP_VIDEO_CodingAVC);
+    ret |= mpp_sys_cfg_set_u32(cfg, "enc_minfo:width", 1280);
+    ret |= mpp_sys_cfg_set_u32(cfg, "enc_minfo:height", 720);
+    ret |= mpp_sys_cfg_set_u32(cfg, "enc_minfo:enable", 1);
+    if (ret)
+        goto DONE;
+
+    ret = mpp_sys_cfg_ioctl(cfg);
+    if (ret)
+        goto DONE;
+
+    ret = mpp_sys_cfg_get_u32(cfg, "enc_minfo:version", &mi_version);
+    ret |= mpp_sys_cfg_get_u32(cfg, "enc_minfo:supported", &mi_supported);
+    ret |= mpp_sys_cfg_get_u32(cfg, "enc_minfo:format", &mi_format);
+    ret |= mpp_sys_cfg_get_u32(cfg, "enc_minfo:buffer_size", &mi_buffer_size);
+    ret |= mpp_sys_cfg_get_u32(cfg, "enc_minfo:data_size", &mi_data_size);
+    ret |= mpp_sys_cfg_get_u32(cfg, "enc_minfo:enable", &mi_enable);
+    if (ret)
+        goto DONE;
+
+    if (mi_version != MPP_ENC_MOTION_INFO_VERSION_1 || mi_enable) {
+        ret = MPP_NOK;
+        goto DONE;
+    }
+
+    if (mi_supported &&
+        (mi_format != MPP_ENC_MOTION_INFO_FMT_VEPU580_H264 ||
+         mi_buffer_size != 7200 || mi_data_size != 7200)) {
+        mpp_err("invalid H264 motion info query fmt %u size %u/%u\n",
+                mi_format, mi_buffer_size, mi_data_size);
+        ret = MPP_NOK;
+        goto DONE;
+    }
+
+    ret = mpp_sys_cfg_set_u32(cfg, "enc_minfo:type", MPP_VIDEO_CodingHEVC);
+    ret |= mpp_sys_cfg_set_u32(cfg, "enc_minfo:enable", 1);
+    if (ret)
+        goto DONE;
+
+    ret = mpp_sys_cfg_ioctl(cfg);
+    if (ret)
+        goto DONE;
+
+    ret = mpp_sys_cfg_get_u32(cfg, "enc_minfo:format", &mi_format);
+    ret |= mpp_sys_cfg_get_u32(cfg, "enc_minfo:buffer_size", &mi_buffer_size);
+    ret |= mpp_sys_cfg_get_u32(cfg, "enc_minfo:data_size", &mi_data_size);
+    if (ret)
+        goto DONE;
+
+    if (mi_supported &&
+        (mi_format != MPP_ENC_MOTION_INFO_FMT_VEPU580_H265 ||
+         mi_buffer_size != 7680 || mi_data_size != 7680)) {
+        ret = MPP_NOK;
+        goto DONE;
+    }
+
+    ret = mpp_sys_cfg_set_u32(cfg, "enc_minfo:data_size", 1);
+    if (!ret) {
+        mpp_err("set enc_minfo readonly output should fail\n");
         ret = MPP_NOK;
         goto DONE;
     }

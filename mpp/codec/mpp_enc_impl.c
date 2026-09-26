@@ -2386,6 +2386,7 @@ static MPP_RET try_get_enc_task(MppEncImpl *enc, EncAsyncTaskInfo *task, EncAsyn
          */
         mpp_task_meta_get_frame (enc->task_in, KEY_INPUT_FRAME,  &enc->frame);
         mpp_task_meta_get_packet(enc->task_in, KEY_OUTPUT_PACKET, &enc->packet);
+        enc->md_info = NULL;
         mpp_task_meta_get_buffer(enc->task_in, KEY_MOTION_INFO, &enc->md_info);
 
         enc_dbg_detail("task dequeue done frm %p pkt %p\n", enc->frame, enc->packet);
@@ -2429,6 +2430,7 @@ static MPP_RET try_get_enc_task(MppEncImpl *enc, EncAsyncTaskInfo *task, EncAsyn
         hal_task->packet    = enc->packet;
         hal_task->output    = enc->pkt_buf;
         hal_task->md_info   = enc->md_info;
+        hal_task->md_info_user = enc->md_info;
         hal_task->stopwatch = stopwatch;
 
         frm->seq_idx = task->seq_idx++;
@@ -2770,8 +2772,14 @@ static MPP_RET set_enc_info_to_packet(MppEncImpl *enc, HalEncTask *hal_task)
     mpp_meta_set_s32(meta, KEY_ENC_START_QP,    rc_task->info.quality_target);
     mpp_meta_set_s32(meta, KEY_ENC_AVERAGE_QP,  rc_task->info.quality_real);
 
-    if (hal_task->md_info)
-        mpp_meta_set_buffer(meta, KEY_MOTION_INFO, hal_task->md_info);
+    if (hal_task->md_info_user) {
+        mpp_meta_set_buffer(meta, KEY_MOTION_INFO, hal_task->md_info_user);
+        if (hal_task->md_info_fmt && hal_task->md_info_size) {
+            mpp_meta_set_s32(meta, KEY_MOTION_INFO_VERSION, MPP_ENC_MOTION_INFO_VERSION_1);
+            mpp_meta_set_s32(meta, KEY_MOTION_INFO_FMT, hal_task->md_info_fmt);
+            mpp_meta_set_s32(meta, KEY_MOTION_INFO_SIZE, hal_task->md_info_size);
+        }
+    }
 
     return MPP_OK;
 }
