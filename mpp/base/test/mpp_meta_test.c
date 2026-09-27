@@ -66,6 +66,11 @@ static MPP_RET meta_set(MppMeta meta)
     ret |= mpp_meta_set_s32(meta, KEY_MOTION_INFO_VERSION, MPP_ENC_MOTION_INFO_VERSION_1);
     ret |= mpp_meta_set_s32(meta, KEY_MOTION_INFO_FMT, MPP_ENC_MOTION_INFO_FMT_VEPU580_H264);
     ret |= mpp_meta_set_s32(meta, KEY_MOTION_INFO_SIZE, 1024);
+    ret |= mpp_meta_set_buffer(meta, KEY_DEC_COLMV, NULL);
+    ret |= mpp_meta_set_s32(meta, KEY_DEC_COLMV_VERSION, MPP_DEC_COLMV_VERSION_1);
+    ret |= mpp_meta_set_s32(meta, KEY_DEC_COLMV_FMT, MPP_DEC_COLMV_FMT_VPU981_AV1);
+    ret |= mpp_meta_set_s32(meta, KEY_DEC_COLMV_OFFSET, 64);
+    ret |= mpp_meta_set_s32(meta, KEY_DEC_COLMV_SIZE, 384);
     ret |= mpp_meta_set_buffer(meta, KEY_HDR_INFO, NULL);
 
     ret |= mpp_meta_set_s32(meta, KEY_INPUT_BLOCK, 0);
@@ -114,6 +119,11 @@ static MPP_RET meta_get(MppMeta meta)
     ret |= mpp_meta_get_s32(meta, KEY_MOTION_INFO_VERSION, &val);
     ret |= mpp_meta_get_s32(meta, KEY_MOTION_INFO_FMT, &val);
     ret |= mpp_meta_get_s32(meta, KEY_MOTION_INFO_SIZE, &val);
+    ret |= mpp_meta_get_buffer(meta, KEY_DEC_COLMV, &buffer);
+    ret |= mpp_meta_get_s32(meta, KEY_DEC_COLMV_VERSION, &val);
+    ret |= mpp_meta_get_s32(meta, KEY_DEC_COLMV_FMT, &val);
+    ret |= mpp_meta_get_s32(meta, KEY_DEC_COLMV_OFFSET, &val);
+    ret |= mpp_meta_get_s32(meta, KEY_DEC_COLMV_SIZE, &val);
     ret |= mpp_meta_get_buffer(meta, KEY_HDR_INFO, &buffer);
 
     ret |= mpp_meta_get_s32(meta, KEY_INPUT_BLOCK, &val);

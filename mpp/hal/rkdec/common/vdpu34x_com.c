@@ -277,7 +277,11 @@ MPP_RET vdpu34x_export_colmv(MppBufSlots frame_slots, RK_S32 output,
         mpp_frame_set_colmv_buffer(frame, colmv);
 
     ret |= mpp_meta_set_buffer(meta, KEY_DEC_COLMV, colmv);
+    ret |= mpp_meta_set_s32(meta, KEY_DEC_COLMV_VERSION,
+                            valid ? MPP_DEC_COLMV_VERSION_1 :
+                            MPP_DEC_COLMV_VERSION_NONE);
     ret |= mpp_meta_set_s32(meta, KEY_DEC_COLMV_FMT, fmt);
+    ret |= mpp_meta_set_s32(meta, KEY_DEC_COLMV_OFFSET, 0);
 
     if (!valid)
         ret |= mpp_meta_set_s32(meta, KEY_DEC_COLMV_SIZE, 0);

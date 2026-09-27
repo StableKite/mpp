@@ -171,7 +171,9 @@ static inline RK_U64 META_KEY_TO_U64(RK_U32 key, RK_U32 type)
     \
     /* raw decoder collocated motion-vector buffer */ \
     ENTRY(KEY_DEC_COLMV,             TYPE_SPTR) \
+    ENTRY(KEY_DEC_COLMV_VERSION,     TYPE_VAL_32) \
     ENTRY(KEY_DEC_COLMV_FMT,         TYPE_VAL_32) \
+    ENTRY(KEY_DEC_COLMV_OFFSET,      TYPE_VAL_32) \
     ENTRY(KEY_DEC_COLMV_SIZE,        TYPE_VAL_32) \
     \
     /* opt-in per-frame decoder hardware statistics */ \

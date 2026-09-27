@@ -26,6 +26,7 @@
 #include "mpp_common.h"
 #include "mpp_bitput.h"
 #include "mpp_hal.h"
+#include "mpp_frame_impl.h"
 #include "mpp_dec_cb_param.h"
 #include "mpp_device.h"
 #include "mpp_env.h"
@@ -64,7 +65,9 @@ typedef struct filt_info_t {
 
 typedef struct av1d_rkv_buf_t {
     RK_U32              valid;
-    VdpuAv1dRegSet  *regs;
+    VdpuAv1dRegSet      *regs;
+    RK_U32              colmv_offset;
+    RK_U32              colmv_size;
 } av1dVdpuBuf;
 
 typedef struct VdpuAv1dRegCtx_t {
@@ -2104,7 +2107,13 @@ MPP_RET vdpu_av1d_gen_regs(void *hal, HalTaskInfo *task)
         RK_U32 y_stride = ctx->luma_size;
         RK_U32 uv_stride = y_stride / 2;
         RK_U32 mv_offset = y_stride + uv_stride + 64;
+        RK_U32 mv_size = (MPP_ALIGN(width, 64) / 64) *
+                         (MPP_ALIGN(height, 64) / 64) * 384;
         RK_U32 offset = (dxva->frame_tag_size & (~0xf));
+        av1dVdpuBuf *reg_buf = &ctx->reg_buf[task->dec.reg_index];
+
+        reg_buf->colmv_offset = mv_offset;
+        reg_buf->colmv_size = mv_size;
 
         regs->addr_cfg.swreg65.sw_dec_out_ybase_lsb = mpp_buffer_get_fd(tile_out_buf->buf[0]);//mpp_buffer_get_fd(buffer);
         regs->addr_cfg.swreg99.sw_dec_out_cbase_lsb = mpp_buffer_get_fd(tile_out_buf->buf[0]);
@@ -2295,6 +2304,76 @@ __RETURN:
     return ret = MPP_OK;
 }
 
+static MPP_RET vdpu_av1d_export_colmv(Av1dHalCtx *p_hal,
+                                         HalTaskInfo *task,
+                                         RK_U32 valid)
+{
+    VdpuAv1dRegCtx *reg_ctx = (VdpuAv1dRegCtx *)p_hal->reg_ctx;
+    MppFrame frame = NULL;
+    MppMeta meta = NULL;
+    MppBuffer colmv = NULL;
+    RK_S32 version = MPP_DEC_COLMV_VERSION_NONE;
+    RK_S32 fmt = MPP_DEC_COLMV_FMT_NONE;
+    RK_S32 offset = 0;
+    RK_S32 size = 0;
+    MPP_RET ret = MPP_OK;
+
+    if (mpp_get_soc_type() != ROCKCHIP_SOC_RK3588 ||
+        task->dec.output < 0)
+        return MPP_OK;
+
+    mpp_buf_slot_get_prop(p_hal->cfg->frame_slots, task->dec.output,
+                          SLOT_FRAME_PTR, &frame);
+    if (!frame)
+        return MPP_NOK;
+
+    meta = mpp_frame_get_meta(frame);
+    if (!meta)
+        return MPP_NOK;
+
+    if (valid && reg_ctx->tile_out_bufs) {
+        av1dVdpuBuf *reg_buf = &reg_ctx->reg_buf[task->dec.reg_index];
+        HalBuf *tile_out = hal_bufs_get_buf(reg_ctx->tile_out_bufs,
+                                            task->dec.output);
+        size_t capacity = 0;
+
+        if (tile_out)
+            colmv = tile_out->buf[0];
+        if (colmv)
+            capacity = mpp_buffer_get_size(colmv);
+
+        if (!colmv || !reg_buf->colmv_size ||
+            reg_buf->colmv_offset > capacity ||
+            reg_buf->colmv_size > capacity - reg_buf->colmv_offset) {
+            valid = 0;
+        } else {
+            version = MPP_DEC_COLMV_VERSION_1;
+            fmt = MPP_DEC_COLMV_FMT_VPU981_AV1;
+            offset = (RK_S32)reg_buf->colmv_offset;
+            size = (RK_S32)reg_buf->colmv_size;
+        }
+    }
+
+    if (!valid) {
+        mpp_frame_set_colmv_buffer(frame, NULL);
+        colmv = NULL;
+        version = MPP_DEC_COLMV_VERSION_NONE;
+        fmt = MPP_DEC_COLMV_FMT_NONE;
+        offset = 0;
+        size = 0;
+    } else {
+        mpp_frame_set_colmv_buffer(frame, colmv);
+    }
+
+    ret |= mpp_meta_set_buffer(meta, KEY_DEC_COLMV, colmv);
+    ret |= mpp_meta_set_s32(meta, KEY_DEC_COLMV_VERSION, version);
+    ret |= mpp_meta_set_s32(meta, KEY_DEC_COLMV_FMT, fmt);
+    ret |= mpp_meta_set_s32(meta, KEY_DEC_COLMV_OFFSET, offset);
+    ret |= mpp_meta_set_s32(meta, KEY_DEC_COLMV_SIZE, size);
+
+    return ret;
+}
+
 MPP_RET vdpu_av1d_wait(void *hal, HalTaskInfo *task)
 {
     MPP_RET ret = MPP_ERR_UNKNOW;
@@ -2333,6 +2412,23 @@ MPP_RET vdpu_av1d_wait(void *hal, HalTaskInfo *task)
 #endif
 
 __SKIP_HARD:
+    if (p_hal->cfg->cfg->base.enable_colmv) {
+        RK_U32 colmv_valid =
+            !task->dec.flags.parse_err &&
+            !task->dec.flags.ref_err &&
+            ret == MPP_OK &&
+            p_regs->swreg1.sw_dec_rdy_int &&
+            !p_regs->swreg1.sw_dec_abort_int &&
+            !p_regs->swreg1.sw_dec_bus_int &&
+            !p_regs->swreg1.sw_dec_buffer_int &&
+            !p_regs->swreg1.sw_dec_error_int &&
+            !p_regs->swreg1.sw_dec_timeout &&
+            !p_regs->swreg1.sw_dec_ext_timeout_int;
+
+        if (vdpu_av1d_export_colmv(p_hal, task, colmv_valid))
+            mpp_err_f("failed to export AV1 decoder COLMV metadata\n");
+    }
+
     if (p_hal->cfg->dec_cb) {
         DecCbHalDone m_ctx;
         RK_U32 *prob_out = (RK_U32*)mpp_buffer_get_ptr(reg_ctx->prob_tbl_out_base);

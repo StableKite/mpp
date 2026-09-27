@@ -35,6 +35,11 @@
  * Raw decoder collocated motion-vector buffer layout.
  * The buffer is hardware-generated and format-specific.
  */
+typedef enum MppDecColmvVersion_e {
+    MPP_DEC_COLMV_VERSION_NONE = 0,
+    MPP_DEC_COLMV_VERSION_1    = 1,
+} MppDecColmvVersion;
+
 typedef enum MppDecColmvFormat_e {
     MPP_DEC_COLMV_FMT_NONE = 0,
     MPP_DEC_COLMV_FMT_VDPU34X_H264_COMPRESSED,
@@ -43,6 +48,7 @@ typedef enum MppDecColmvFormat_e {
     MPP_DEC_COLMV_FMT_VDPU34X_VP9_COMPRESSED,
     MPP_DEC_COLMV_FMT_VDPU34X_VP9_UNCOMPRESSED,
     MPP_DEC_COLMV_FMT_VDPU34X_AVS2_COMPRESSED,
+    MPP_DEC_COLMV_FMT_VPU981_AV1,
     MPP_DEC_COLMV_FMT_BUTT,
 } MppDecColmvFormat;
 
@@ -183,10 +189,13 @@ typedef enum MppMetaKey_e {
     KEY_DEC_TBN_Y_OFFSET        = FOURCC_META('t', 'b', 'y', 'o'),
     KEY_DEC_TBN_UV_OFFSET       = FOURCC_META('t', 'b', 'c', 'o'),
 
-    /* Raw decoder collocated motion-vector buffer and layout. */
+    /* Raw decoder collocated motion-vector backing buffer and layout. */
     KEY_DEC_COLMV               = FOURCC_META('d', 'c', 'm', 'v'),
+    KEY_DEC_COLMV_VERSION       = FOURCC_META('d', 'c', 'm', 'r'),
     KEY_DEC_COLMV_FMT           = FOURCC_META('d', 'c', 'm', 'f'),
-    /* Number of valid bytes in KEY_DEC_COLMV for this frame. */
+    /* Byte offset from the start of KEY_DEC_COLMV to the valid payload. */
+    KEY_DEC_COLMV_OFFSET        = FOURCC_META('d', 'c', 'm', 'o'),
+    /* Number of valid payload bytes starting at KEY_DEC_COLMV_OFFSET. */
     KEY_DEC_COLMV_SIZE          = FOURCC_META('d', 'c', 'm', 's'),
 
     /*

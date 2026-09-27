@@ -64,10 +64,13 @@ static MPP_RET dec_validate_colmv(MpiDecLoopData *data, MppFrame frame)
 {
     MppMeta meta = NULL;
     MppBuffer colmv = NULL;
+    RK_S32 version = MPP_DEC_COLMV_VERSION_NONE;
     RK_S32 fmt = MPP_DEC_COLMV_FMT_NONE;
     RK_U8 *ptr = NULL;
     size_t capacity = 0;
+    size_t offset = 0;
     size_t size = 0;
+    RK_S32 valid_offset = 0;
     RK_S32 valid_size = 0;
     size_t i;
     RK_U32 nonzero = 0;
@@ -85,10 +88,23 @@ static MPP_RET dec_validate_colmv(MpiDecLoopData *data, MppFrame frame)
     if (ret || !colmv)
         return MPP_OK;
 
+    ret = mpp_meta_get_s32(meta, KEY_DEC_COLMV_VERSION, &version);
+    if (ret || version != MPP_DEC_COLMV_VERSION_1) {
+        mpp_err_f("invalid COLMV version %d ret %d\n", version, ret);
+        return MPP_NOK;
+    }
+
     ret = mpp_meta_get_s32(meta, KEY_DEC_COLMV_FMT, &fmt);
     if (ret || fmt <= MPP_DEC_COLMV_FMT_NONE ||
         fmt >= MPP_DEC_COLMV_FMT_BUTT) {
         mpp_err_f("invalid COLMV format %d ret %d\n", fmt, ret);
+        return MPP_NOK;
+    }
+
+    ret = mpp_meta_get_s32(meta, KEY_DEC_COLMV_OFFSET, &valid_offset);
+    if (ret || valid_offset < 0) {
+        mpp_err_f("invalid COLMV offset %d ret %d\n",
+                  valid_offset, ret);
         return MPP_NOK;
     }
 
@@ -100,13 +116,15 @@ static MPP_RET dec_validate_colmv(MpiDecLoopData *data, MppFrame frame)
     }
 
     capacity = mpp_buffer_get_size(colmv);
+    offset = (size_t)valid_offset;
     size = (size_t)valid_size;
     ptr = (RK_U8 *)mpp_buffer_get_ptr(colmv);
-    if (!capacity || !ptr || size > capacity) {
-        mpp_err_f("invalid COLMV buffer ptr %p valid %zu capacity %zu\n",
-                  ptr, size, capacity);
+    if (!capacity || !ptr || offset > capacity || size > capacity - offset) {
+        mpp_err_f("invalid COLMV buffer ptr %p offset %zu valid %zu capacity %zu\n",
+                  ptr, offset, size, capacity);
         return MPP_NOK;
     }
+    ptr += offset;
 
     ret = mpp_buffer_sync_ro_begin(colmv);
     if (ret) {
@@ -133,8 +151,8 @@ static MPP_RET dec_validate_colmv(MpiDecLoopData *data, MppFrame frame)
     if (nonzero)
         data->colmv_nonzero_frames++;
 
-    mpp_log("COLMV frame %d fmt %d size %zu nonzero %u hash %08x\n",
-            data->frame_count, fmt, size, nonzero, hash);
+    mpp_log("COLMV frame %d version %d fmt %d offset %zu size %zu nonzero %u hash %08x\n",
+            data->frame_count, version, fmt, offset, size, nonzero, hash);
 
     return MPP_OK;
 }

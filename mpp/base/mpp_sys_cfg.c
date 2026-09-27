@@ -552,23 +552,26 @@ static RK_U32 mpp_sys_dec_cap_get_features(MppCodingType type,
     if (cap->cap_core_num > 1)
         features |= MPP_DEC_CAP_FEATURE_MULTICORE;
 
-    /*
-     * Raw COLMV metadata and VDPU34x hardware statistics are public
-     * decoder APIs implemented on the RK3588 RKVDEC path.
-     */
-    if (mpp_get_soc_type() == ROCKCHIP_SOC_RK3588 &&
-        cap->type == VPU_CLIENT_RKVDEC) {
-        switch (type) {
-        case MPP_VIDEO_CodingAVC:
-        case MPP_VIDEO_CodingHEVC:
-        case MPP_VIDEO_CodingVP9:
-        case MPP_VIDEO_CodingAVS2:
-            features |= MPP_DEC_CAP_FEATURE_COLMV_META;
-            features |= MPP_DEC_CAP_FEATURE_HW_STAT;
-            break;
-        default:
-            break;
+    if (mpp_get_soc_type() == ROCKCHIP_SOC_RK3588) {
+        /* VDPU34x RKVDEC exposes raw COLMV plus hardware statistics. */
+        if (cap->type == VPU_CLIENT_RKVDEC) {
+            switch (type) {
+            case MPP_VIDEO_CodingAVC:
+            case MPP_VIDEO_CodingHEVC:
+            case MPP_VIDEO_CodingVP9:
+            case MPP_VIDEO_CodingAVS2:
+                features |= MPP_DEC_CAP_FEATURE_COLMV_META;
+                features |= MPP_DEC_CAP_FEATURE_HW_STAT;
+                break;
+            default:
+                break;
+            }
         }
+
+        /* RK3588 VPU981 AV1 exposes raw opaque motion-vector payloads. */
+        if (cap->type == VPU_CLIENT_AV1DEC &&
+            type == MPP_VIDEO_CodingAV1)
+            features |= MPP_DEC_CAP_FEATURE_COLMV_META;
     }
 
     return features;
