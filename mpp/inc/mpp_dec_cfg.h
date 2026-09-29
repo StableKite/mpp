@@ -90,6 +90,7 @@ typedef struct MppDecStatusCfg_t {
 
 typedef struct MppDecAv1Cfg_t {
     RK_U32              operating_point;
+    RK_U32              output_all_layers;
 } MppDecAv1Cfg;
 
 typedef struct MppDecCfgSet_t {

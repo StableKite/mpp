@@ -539,11 +539,22 @@ static MPP_RET set_output_frame(Av1DecCtx *ctx)
     MppFrame frame = NULL;
     MPP_RET ret = MPP_OK;
 
-    // TODO: all layers
-    if (s->operating_point_idc &&
+    if (!ctx->cfg->av1.output_all_layers &&
+        s->operating_point_idc &&
         mpp_log2(s->operating_point_idc >> 8) > s->cur_frame.spatial_id)
         return MPP_OK;
     mpp_buf_slot_get_prop(ctx->slots, s->cur_frame.slot_index, SLOT_FRAME_PTR, &frame);
+    if (frame) {
+        MppMeta meta = mpp_frame_get_meta(frame);
+
+
+        if (!meta ||
+            mpp_meta_set_s32(meta, KEY_TEMPORAL_ID, s->cur_frame.temporal_id) ||
+            mpp_meta_set_s32(meta, KEY_SPATIAL_ID, s->cur_frame.spatial_id)) {
+            mpp_err_f("Failed to set AV1 output layer metadata.\n");
+            return MPP_NOK;
+        }
+    }
     if (s->hdr_dynamic_meta && s->hdr_dynamic) {
         mpp_frame_set_hdr_dynamic_meta(frame, s->hdr_dynamic_meta);
         s->hdr_dynamic = 0;

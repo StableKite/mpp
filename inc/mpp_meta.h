@@ -87,6 +87,7 @@ typedef enum MppMetaKey_e {
 
     /* mpp_frame / mpp_packet meta data info key */
     KEY_TEMPORAL_ID             = FOURCC_META('t', 'l', 'i', 'd'),
+    KEY_SPATIAL_ID              = FOURCC_META('s', 'l', 'i', 'd'),
     KEY_LONG_REF_IDX            = FOURCC_META('l', 't', 'i', 'd'),
     KEY_ENC_AVERAGE_QP          = FOURCC_META('a', 'v', 'g', 'q'),
     KEY_ENC_START_QP            = FOURCC_META('s', 't', 'r', 'q'),

@@ -31,6 +31,7 @@ int main(void)
     RK_S64 end = 0;
     RK_S64 start = 0;
     RK_U32 operating_point = 0;
+    RK_U32 output_all_layers = 0;
 
     mpp_dec_cfg_show();
 
@@ -54,6 +55,30 @@ int main(void)
                 operating_point, ret);
         goto DONE;
     }
+
+    ret = mpp_dec_cfg_get_u32(cfg, "av1:output_all_layers", &output_all_layers);
+    if (ret || output_all_layers) {
+        mpp_err("invalid av1 output_all_layers default %u ret %d\n",
+                output_all_layers, ret);
+        goto DONE;
+    }
+
+
+    ret = mpp_dec_cfg_set_u32(cfg, "av1:output_all_layers", 1);
+    if (ret) {
+        mpp_err("set av1 output_all_layers failed %d\n", ret);
+        goto DONE;
+    }
+
+
+    ret = mpp_dec_cfg_get_u32(cfg, "av1:output_all_layers", &output_all_layers);
+    if (ret || output_all_layers != 1) {
+        mpp_err("invalid av1 output_all_layers %u ret %d\n",
+                output_all_layers, ret);
+        ret = MPP_NOK;
+        goto DONE;
+    }
+
 
     ret = mpp_dec_cfg_set_u32(cfg, "av1:operating_point", 3);
     if (ret) {

@@ -128,6 +128,7 @@ static inline RK_U64 META_KEY_TO_U64(RK_U32 key, RK_U32 type)
     \
     /* extra information for tsvc */ \
     ENTRY(KEY_TEMPORAL_ID,          TYPE_VAL_32) \
+    ENTRY(KEY_SPATIAL_ID,           TYPE_VAL_32) \
     ENTRY(KEY_LONG_REF_IDX,         TYPE_VAL_32) \
     ENTRY(KEY_ENC_AVERAGE_QP,       TYPE_VAL_32) \
     ENTRY(KEY_ENC_START_QP,         TYPE_VAL_32) \

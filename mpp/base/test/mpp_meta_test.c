@@ -81,6 +81,7 @@ static MPP_RET meta_set(MppMeta meta)
     ret |= mpp_meta_set_s32(meta, KEY_OUTPUT_INTRA, 0);
 
     ret |= mpp_meta_set_s32(meta, KEY_TEMPORAL_ID, 0);
+    ret |= mpp_meta_set_s32(meta, KEY_SPATIAL_ID, 0);
     ret |= mpp_meta_set_s32(meta, KEY_LONG_REF_IDX, 0);
     ret |= mpp_meta_set_s32(meta, KEY_ENC_AVERAGE_QP, 0);
 
@@ -134,6 +135,7 @@ static MPP_RET meta_get(MppMeta meta)
     ret |= mpp_meta_get_s32(meta, KEY_OUTPUT_INTRA, &val);
 
     ret |= mpp_meta_get_s32(meta, KEY_TEMPORAL_ID, &val);
+    ret |= mpp_meta_get_s32(meta, KEY_SPATIAL_ID, &val);
     ret |= mpp_meta_get_s32(meta, KEY_LONG_REF_IDX, &val);
     ret |= mpp_meta_get_s32(meta, KEY_ENC_AVERAGE_QP, &val);
 
