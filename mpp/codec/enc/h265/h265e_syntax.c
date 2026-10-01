@@ -85,7 +85,7 @@ static void fill_picture_parameters(const H265eCtx *h,
     pp->init_qp_minus26                          = pps->m_picInitQPMinus26;
 
 
-    pp->CodingParamToolFlags = (sps->m_scalingListEnabledFlag                                 <<  0) |
+    pp->CodingParamToolFlags = ((sps->m_scalingListEnabledFlag != 0)                         <<  0) |
                                (sps->m_useAMP                                                 <<  1) |
                                (sps->m_bUseSAO                                                <<  2) |
                                (sps->m_usePCM                                                 <<  3) |

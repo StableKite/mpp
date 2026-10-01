@@ -298,6 +298,16 @@ static MPP_RET h264e_proc_cfg(void *ctx, MpiCmd cmd, void *param)
     switch (cmd) {
     case MPP_ENC_SET_CFG : {
         h264e_check_cfg(cfg);
+        if (cfg->h264.scaling_list_mode < 0 ||
+            cfg->h264.scaling_list_mode > 2) {
+            ret = MPP_ERR_VALUE;
+        } else if (cfg->h264.scaling_list_mode == 2) {
+            if (cfg->h264.profile < H264_PROFILE_HIGH ||
+                !cfg->h264.transform8x8_mode)
+                ret = MPP_ERR_VALUE;
+            else
+                ret = mpp_enc_h264_scaling_list_check(&cfg->h264_scaling_list_cfg);
+        }
     } break;
     case MPP_ENC_SET_SEI_CFG : {
     } break;
@@ -321,7 +331,8 @@ static MPP_RET h264e_gen_hdr(void *ctx, MppPacket pkt)
     h264e_dbg_func("enter\n");
 
     h264e_sps_update(&p->sps, p->cfg);
-    h264e_pps_update(&p->pps, p->cfg);
+    if (h264e_pps_update(&p->pps, p->cfg))
+        return MPP_ERR_VALUE;
 
     /*
      * NOTE: When sps/pps is update we need to update dpb and slice info

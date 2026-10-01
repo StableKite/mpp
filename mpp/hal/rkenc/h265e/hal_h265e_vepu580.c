@@ -41,6 +41,7 @@
 #include "hal_h265e_vepu580.h"
 #include "hal_h265e_vepu580_reg.h"
 #include "mpp_enc_cb_param.h"
+#include "mpp_enc_cfg.h"
 
 #include "mpp_service.h"
 
@@ -1255,7 +1256,127 @@ static void vepu580_h265_rdo_cfg (vepu580_rdo_cfg *reg)
     reg->preintra_b16_cst_wgt.pre_intra16_cst_wgt01 = 25;
 }
 
-static void vepu580_h265_scl_cfg(vepu580_rdo_cfg *reg)
+static RK_U32 vepu580_h265_pack_u16(RK_U32 a, RK_U32 b)
+{
+    return (a & 0xffff) | ((b & 0xffff) << 16);
+}
+
+static RK_U32 vepu580_h265_pack_u8(RK_U32 a, RK_U32 b, RK_U32 c, RK_U32 d)
+{
+    return (a & 0xff) | ((b & 0xff) << 8) |
+           ((c & 0xff) << 16) | ((d & 0xff) << 24);
+}
+
+static RK_U32 vepu580_h265_scale_q(RK_U32 coeff)
+{
+    return (65536 + coeff / 2) / coeff;
+}
+
+static MPP_RET vepu580_h265_pack_scaling_list(
+    RK_U32 dst[678], const MppEncH265ScalingListCfg *cfg)
+{
+    RK_U32 block;
+    RK_U32 i;
+
+    if (mpp_enc_h265_scaling_list_check(cfg))
+        return MPP_ERR_VALUE;
+
+    memset(dst, 0, 678 * sizeof(*dst));
+
+    /* TU8 reciprocal-q banks: intra Y/U/V, then inter Y/U/V. */
+    for (block = 0; block < 6; block++) {
+        for (i = 0; i < 64; i += 2) {
+            RK_U32 a = vepu580_h265_scale_q(cfg->tu8[block][63 - i]);
+            RK_U32 b = vepu580_h265_scale_q(cfg->tu8[block][62 - i]);
+
+            dst[block * 32 + i / 2] = vepu580_h265_pack_u16(a, b);
+        }
+    }
+
+    /*
+     * Six 64-word TU16 composite blocks.
+     * Each 4-word element is q16[4], q32/raw32 auxiliary, raw16[4].
+     */
+    for (block = 0; block < 6; block++) {
+        RK_U32 base = 192 + block * 64;
+
+        for (i = 0; i < 16; i++) {
+            RK_U32 hw4 = i * 4;
+            RK_U32 c0 = cfg->tu16[block][63 - hw4];
+            RK_U32 c1 = cfg->tu16[block][62 - hw4];
+            RK_U32 c2 = cfg->tu16[block][61 - hw4];
+            RK_U32 c3 = cfg->tu16[block][60 - hw4];
+            RK_U32 q0 = vepu580_h265_scale_q(c0);
+            RK_U32 q1 = vepu580_h265_scale_q(c1);
+            RK_U32 q2 = vepu580_h265_scale_q(c2);
+            RK_U32 q3 = vepu580_h265_scale_q(c3);
+            RK_U32 aux;
+
+            dst[base + i * 4 + 0] = vepu580_h265_pack_u16(q0, q1);
+            dst[base + i * 4 + 1] = vepu580_h265_pack_u16(q2, q3);
+
+            if (block < 4) {
+                RK_U32 matrix = block / 2;
+                RK_U32 hw = (block & 1) * 32 + i * 2;
+                RK_U32 a = vepu580_h265_scale_q(cfg->tu32[matrix][63 - hw]);
+                RK_U32 b = vepu580_h265_scale_q(cfg->tu32[matrix][62 - hw]);
+
+                aux = vepu580_h265_pack_u16(a, b);
+            } else {
+                RK_U32 hw = (block - 4) * 32 + i * 2;
+                RK_U32 i0 = cfg->tu32[0][63 - hw];
+                RK_U32 i1 = cfg->tu32[0][62 - hw];
+                RK_U32 p0 = cfg->tu32[1][63 - hw];
+                RK_U32 p1 = cfg->tu32[1][62 - hw];
+
+                aux = vepu580_h265_pack_u8(i0, i1, p0, p1);
+            }
+
+            dst[base + i * 4 + 2] = aux;
+            dst[base + i * 4 + 3] = vepu580_h265_pack_u8(c0, c1, c2, c3);
+        }
+    }
+
+    /* ip_raw8[8] for Y/U/V: two intra words then two inter words. */
+    for (block = 0; block < 3; block++) {
+        RK_U32 base = 576 + block * 32;
+
+        for (i = 0; i < 8; i++) {
+            RK_U32 hw = i * 8;
+            const RK_U8 *intra = cfg->tu8[block];
+            const RK_U8 *inter = cfg->tu8[block + 3];
+
+            dst[base + i * 4 + 0] =
+                vepu580_h265_pack_u8(intra[63 - hw], intra[62 - hw],
+                                     intra[61 - hw], intra[60 - hw]);
+            dst[base + i * 4 + 1] =
+                vepu580_h265_pack_u8(intra[59 - hw], intra[58 - hw],
+                                     intra[57 - hw], intra[56 - hw]);
+            dst[base + i * 4 + 2] =
+                vepu580_h265_pack_u8(inter[63 - hw], inter[62 - hw],
+                                     inter[61 - hw], inter[60 - hw]);
+            dst[base + i * 4 + 3] =
+                vepu580_h265_pack_u8(inter[59 - hw], inter[58 - hw],
+                                     inter[57 - hw], inter[56 - hw]);
+        }
+    }
+
+    for (i = 0; i < 8; i += 2) {
+        RK_U32 a = vepu580_h265_scale_q(cfg->dc[i]);
+        RK_U32 b = vepu580_h265_scale_q(cfg->dc[i + 1]);
+
+        dst[672 + i / 2] = vepu580_h265_pack_u16(a, b);
+    }
+    dst[676] = vepu580_h265_pack_u8(cfg->dc[0], cfg->dc[1],
+                                   cfg->dc[2], cfg->dc[3]);
+    dst[677] = vepu580_h265_pack_u8(cfg->dc[4], cfg->dc[5],
+                                   cfg->dc[6], cfg->dc[7]);
+
+    return MPP_OK;
+}
+
+static MPP_RET vepu580_h265_scl_cfg(vepu580_rdo_cfg *reg, RK_U32 mode,
+                                    const MppEncH265ScalingListCfg *user)
 {
     static RK_U32 vepu580_h265_scl_tab[] = {
         /* 0x2200 */
@@ -1346,13 +1467,21 @@ static void vepu580_h265_scl_cfg(vepu580_rdo_cfg *reg)
         0x10001000, 0x10001000, 0x10001000, 0x10001000, 0x10101010, 0x10101010,
     };
 
+    MPP_RET ret = MPP_OK;
+
     hal_h265e_dbg_func("enter\n");
 
-    memcpy(&reg->scaling_list_reg[0], vepu580_h265_scl_tab, sizeof(vepu580_h265_scl_tab));
+    if (mode == 2)
+        ret = vepu580_h265_pack_scaling_list(reg->scaling_list_reg, user);
+    else
+        memcpy(&reg->scaling_list_reg[0], vepu580_h265_scl_tab,
+               sizeof(vepu580_h265_scl_tab));
 
-    hal_h265e_dbg_func("leave\n");
+    hal_h265e_dbg_func("leave ret %d\n", ret);
+    return ret;
 }
-static void vepu580_h265_global_cfg_set(H265eV580HalContext *ctx, H265eV580RegSet *regs)
+
+static MPP_RET vepu580_h265_global_cfg_set(H265eV580HalContext *ctx, H265eV580RegSet *regs)
 {
     MppEncHwCfg *hw = &ctx->cfg->hw;
     RK_U32 i;
@@ -1363,7 +1492,10 @@ static void vepu580_h265_global_cfg_set(H265eV580HalContext *ctx, H265eV580RegSe
     vepu580_h265_sobel_cfg(reg_wgt);
     vepu580_h265_rdo_cfg(reg_rdo);
     vepu580_h265_rdo_bias_cfg(reg_rdo, hw);
-    vepu580_h265_scl_cfg(reg_rdo);
+    if (vepu580_h265_scl_cfg(reg_rdo,
+                             ctx->cfg->h265.trans_cfg.scaling_list_mode,
+                             &ctx->cfg->h265_scaling_list_cfg))
+        return MPP_ERR_VALUE;
 
     memcpy(&reg_wgt->common.iprd_wgt_qp_hevc_0_51[0], lamd_satd_qp, sizeof(lamd_satd_qp));
 
@@ -1418,6 +1550,8 @@ static void vepu580_h265_global_cfg_set(H265eV580HalContext *ctx, H265eV580RegSe
     reg_wgt->common.fme_sqi_thd0.cime_sad_pu32_th = 16;
     reg_wgt->common.fme_sqi_thd1.cime_sad_pu64_th = 16;
     reg_wgt->common.fme_sqi_thd1.move_lambda = 1;
+
+    return MPP_OK;
 }
 
 MPP_RET hal_h265e_v580_deinit(void *hal)
@@ -2731,6 +2865,7 @@ MPP_RET hal_h265e_v580_gen_regs(void *hal, HalEncTask *task)
     hevc_vepu580_base        *reg_base = &regs->reg_base;
     Vepu580RcKlut *reg_klut = &regs->reg_rc_klut;
     MppEncCfgSet *cfg = ctx->cfg;
+    MPP_RET ret;
 
     hal_h265e_enter();
     hal_dbg_setup(ctx->dbg_ctx, NULL);
@@ -2820,7 +2955,7 @@ MPP_RET hal_h265e_v580_gen_regs(void *hal, HalEncTask *task)
     }
 
     reg_base->reg0232_rdo_cfg.ccwa_e = 1;
-    reg_base->reg0232_rdo_cfg.scl_lst_sel = syn->pp.scaling_list_enabled_flag;
+    reg_base->reg0232_rdo_cfg.scl_lst_sel = cfg->h265.trans_cfg.scaling_list_mode;
     reg_base->reg0236_synt_nal.nal_unit_type = h265e_get_nal_type(&syn->sp, ctx->frame_type);
 
     vepu580_h265_set_hw_address(ctx, task);
@@ -2855,7 +2990,9 @@ MPP_RET hal_h265e_v580_gen_regs(void *hal, HalEncTask *task)
     }
 
     /*paramet cfg*/
-    vepu580_h265_global_cfg_set(ctx, regs);
+    ret = vepu580_h265_global_cfg_set(ctx, regs);
+    if (ret)
+        return ret;
 
     vepu580_h265e_tune_reg_patch(ctx->tune);
 

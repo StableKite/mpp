@@ -441,6 +441,84 @@ void codeVUI(H265eStream *s, H265eVuiInfo *vui)
     }
 }
 
+static const RK_U8 h265e_scaling_list_scan8x8[64] = {
+     0,  8,  1, 16,  9,  2, 24, 17,
+    10,  3, 32, 25, 18, 11,  4, 40,
+    33, 26, 19, 12,  5, 48, 41, 34,
+    27, 20, 13,  6, 56, 49, 42, 35,
+    28, 21, 14,  7, 57, 50, 43, 36,
+    29, 22, 15, 58, 51, 44, 37, 30,
+    23, 59, 52, 45, 38, 31, 60, 53,
+    46, 39, 61, 54, 47, 62, 55, 63,
+};
+
+static RK_S32 h265e_scaling_list_delta(RK_S32 cur, RK_S32 prev)
+{
+    RK_S32 delta = cur - prev;
+
+    while (delta > 127)
+        delta -= 256;
+    while (delta < -128)
+        delta += 256;
+
+    return delta;
+}
+
+static void h265e_scaling_list_write_matrix(H265eStream *s, const RK_U8 *matrix,
+                                             RK_S32 dc)
+{
+    RK_S32 next = dc;
+    RK_S32 i;
+
+    for (i = 0; i < 64; i++) {
+        RK_S32 cur = matrix[h265e_scaling_list_scan8x8[i]];
+        RK_S32 delta = h265e_scaling_list_delta(cur, next);
+
+        h265e_stream_write_se_with_log(s, delta, "scaling_list_delta_coef");
+        next = cur;
+    }
+}
+
+static void h265e_scaling_list_write(H265eStream *s,
+                                     const MppEncH265ScalingListCfg *cfg)
+{
+    RK_S32 size_id;
+    RK_S32 matrix_id;
+
+    for (size_id = 0; size_id < 4; size_id++) {
+        RK_S32 matrix_step = (size_id == 3) ? 3 : 1;
+
+        for (matrix_id = 0; matrix_id < 6; matrix_id += matrix_step) {
+            if (size_id == 0) {
+                h265e_stream_write1_with_log(s, 0, "scaling_list_pred_mode_flag");
+                h265e_stream_write_ue_with_log(s, 0, "scaling_list_pred_matrix_id_delta");
+            } else {
+                const RK_U8 *matrix;
+                RK_S32 dc = 8;
+
+                h265e_stream_write1_with_log(s, 1, "scaling_list_pred_mode_flag");
+                if (size_id == 1) {
+                    matrix = cfg->tu8[matrix_id];
+                } else if (size_id == 2) {
+                    matrix = cfg->tu16[matrix_id];
+                    dc = cfg->dc[matrix_id];
+                    h265e_stream_write_se_with_log(s, dc - 8,
+                                                   "scaling_list_dc_coef_minus8");
+                } else {
+                    RK_S32 idx = matrix_id / 3;
+
+                    matrix = cfg->tu32[idx];
+                    dc = cfg->dc[6 + idx];
+                    h265e_stream_write_se_with_log(s, dc - 8,
+                                                   "scaling_list_dc_coef_minus8");
+                }
+
+                h265e_scaling_list_write_matrix(s, matrix, dc);
+            }
+        }
+    }
+}
+
 static MPP_RET h265e_sps_write(H265eSps *sps, H265eStream *s)
 {
     RK_S32 sps_byte_start = 0;
@@ -497,8 +575,8 @@ static MPP_RET h265e_sps_write(H265eSps *sps, H265eStream *s)
     if (sps->m_scalingListEnabledFlag == 1)
         h265e_stream_write1_with_log(s, 0, "sps_scaling_list_data_present_flag");
     else if (sps->m_scalingListEnabledFlag == 2) {
-        //TODO:
-        mpp_err_f("m_scalingListEnabledFlag == 2 not supported yet\n");
+        h265e_stream_write1_with_log(s, 1, "sps_scaling_list_data_present_flag");
+        h265e_scaling_list_write(s, &sps->m_scalingListCfg);
     }
     h265e_stream_write1_with_log(s, (sps->m_useAMP != 0) ? 1 : 0, "amp_enabled_flag");
     h265e_stream_write1_with_log(s, (sps->m_bUseSAO != 0) ? 1 : 0, "sample_adaptive_offset_enabled_flag");
@@ -706,6 +784,7 @@ MPP_RET h265e_deinit_extra_info(void *extra_info)
 MPP_RET h265e_set_extra_info(H265eCtx *ctx)
 {
     H265eExtraInfo *info = (H265eExtraInfo *)ctx->extra_info;
+    MPP_RET ret;
     H265eSps *sps = &ctx->sps;
     H265ePps *pps = &ctx->pps;
     H265eVps *vps = &ctx->vps;
@@ -721,8 +800,12 @@ MPP_RET h265e_set_extra_info(H265eCtx *ctx)
     h265e_nal_end(info);
 
     h265e_nal_start(info, NAL_SPS, H265_NAL_PRIORITY_HIGHEST);
-    h265e_set_sps(ctx, sps, vps);
-    h265e_sps_write(sps, &info->stream);
+    ret = h265e_set_sps(ctx, sps, vps);
+    if (ret)
+        return ret;
+    ret = h265e_sps_write(sps, &info->stream);
+    if (ret)
+        return ret;
     h265e_nal_end(info);
 
     h265e_nal_start(info, NAL_PPS, H265_NAL_PRIORITY_HIGHEST);

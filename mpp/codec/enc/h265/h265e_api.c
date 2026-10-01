@@ -211,7 +211,8 @@ static MPP_RET h265e_gen_hdr(void *ctx, MppPacket pkt)
 
     h265e_dbg_func("enter ctx %p\n", ctx);
 
-    h265e_set_extra_info(p);
+    if (h265e_set_extra_info(p))
+        return MPP_ERR_VALUE;
     h265e_get_extra_info(p, pkt);
 
     if (NULL == p->dpb)
@@ -413,11 +414,16 @@ static MPP_RET h265e_proc_cfg(void *ctx, MpiCmd cmd, void *param)
 
     switch (cmd) {
     case MPP_ENC_SET_CFG : {
+        if (cfg->h265.trans_cfg.scaling_list_mode > 2)
+            ret = MPP_ERR_VALUE;
+        else if (cfg->h265.trans_cfg.scaling_list_mode == 2)
+            ret = mpp_enc_h265_scaling_list_check(&cfg->h265_scaling_list_cfg);
     } break;
     case MPP_ENC_GET_EXTRA_INFO: {
         MppPacket pkt_out = (MppPacket )param;
-        h265e_set_extra_info(p);
-        h265e_get_extra_info(p, pkt_out);
+        ret = h265e_set_extra_info(p);
+        if (!ret)
+            h265e_get_extra_info(p, pkt_out);
     } break;
     case MPP_ENC_SET_SEI_CFG: {
     } break;

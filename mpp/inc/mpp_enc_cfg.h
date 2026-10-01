@@ -10,6 +10,7 @@
 #include "rk_venc_cmd.h"
 #include "rk_venc_ref.h"
 #include "mpp_rc_defs.h"
+#include "mpp_err.h"
 
 #include "kmpp_obj.h"
 
@@ -35,7 +36,9 @@ typedef struct MppEncCfgSet_t {
 
     // codec detail config
     MppEncH264Cfg       h264;
+    MppEncH264ScalingListCfg h264_scaling_list_cfg;
     MppEncH265Cfg       h265;
+    MppEncH265ScalingListCfg h265_scaling_list_cfg;
     MppEncJpegCfg       jpeg;
     MppEncVp8Cfg        vp8;
 
@@ -56,6 +59,51 @@ typedef struct MppEncCfgSet_t {
     // quality fine tuning config
     MppEncFineTuneCfg   tune;
 } MppEncCfgSet;
+
+static inline MPP_RET mpp_enc_h264_scaling_list_check(const MppEncH264ScalingListCfg *cfg)
+{
+    RK_S32 i;
+
+    if (!cfg || cfg->version != MPP_ENC_H264_SCALING_LIST_VERSION_1)
+        return MPP_ERR_VALUE;
+
+    for (i = 0; i < 64; i++) {
+        if (!cfg->intra8x8[i] || !cfg->inter8x8[i])
+            return MPP_ERR_VALUE;
+    }
+
+    return MPP_OK;
+}
+
+static inline MPP_RET mpp_enc_h265_scaling_list_check(const MppEncH265ScalingListCfg *cfg)
+{
+    RK_S32 m;
+    RK_S32 i;
+
+    if (!cfg || cfg->version != MPP_ENC_H265_SCALING_LIST_VERSION_1)
+        return MPP_ERR_VALUE;
+
+    for (m = 0; m < 6; m++) {
+        for (i = 0; i < 64; i++) {
+            if (!cfg->tu8[m][i] || !cfg->tu16[m][i])
+                return MPP_ERR_VALUE;
+        }
+    }
+
+    for (m = 0; m < 2; m++) {
+        for (i = 0; i < 64; i++) {
+            if (!cfg->tu32[m][i])
+                return MPP_ERR_VALUE;
+        }
+    }
+
+    for (i = 0; i < 8; i++) {
+        if (!cfg->dc[i])
+            return MPP_ERR_VALUE;
+    }
+
+    return MPP_OK;
+}
 
 #ifdef __cplusplus
 extern "C" {

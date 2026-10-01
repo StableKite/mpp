@@ -135,6 +135,7 @@
     ENTRY(prefix, s32,  rk_s32,     trans8x8,               FLAG_INCR,                          h264, transform8x8_mode_ex); \
     ENTRY(prefix, s32,  rk_s32,     const_intra,            FLAG_INCR,                          h264, constrained_intra_pred_mode); \
     ENTRY(prefix, s32,  rk_s32,     scaling_list,           FLAG_INCR,                          h264, scaling_list_mode); \
+    ENTRY(prefix, arr,  rk_u8,      scaling_list_cfg,       FLAG_PREV,                          h264_scaling_list_cfg); \
     ENTRY(prefix, s32,  rk_s32,     cb_qp_offset,           FLAG_INCR,                          h264, chroma_cb_qp_offset); \
     ENTRY(prefix, s32,  rk_s32,     cr_qp_offset,           FLAG_PREV,                          h264, chroma_cr_qp_offset); \
     ENTRY(prefix, s32,  rk_s32,     dblk_disable,           FLAG_INCR,                          h264, deblock_disable); \
@@ -160,6 +161,7 @@
     ENTRY(prefix, s32,  rk_s32,     tier,                   FLAG_PREV,                          h265, tier); \
     ENTRY(prefix, s32,  rk_s32,     level,                  FLAG_PREV,                          h265, level); \
     ENTRY(prefix, u32,  rk_u32,     scaling_list,           FLAG_INCR,                          h265, trans_cfg, scaling_list_mode); \
+    ENTRY(prefix, arr,  rk_u8,      scaling_list_cfg,       FLAG_PREV,                          h265_scaling_list_cfg); \
     ENTRY(prefix, s32,  rk_s32,     cb_qp_offset,           FLAG_PREV,                          h265, trans_cfg, cb_qp_offset); \
     ENTRY(prefix, s32,  rk_s32,     cr_qp_offset,           FLAG_PREV,                          h265, trans_cfg, cr_qp_offset); \
     ENTRY(prefix, s32,  rk_s32,     diff_cu_qp_delta_depth, FLAG_PREV,                          h265, trans_cfg, diff_cu_qp_delta_depth); \

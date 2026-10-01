@@ -19,6 +19,7 @@
 
 #include "rk_type.h"
 #include "mpp_err.h"
+#include "rk_venc_cfg.h"
 
 #include "h265e_syntax.h"
 #include "h265e_syntax_new.h"
@@ -287,8 +288,9 @@ typedef struct H265eSps_e {
 
     RK_U32          m_bTemporalIdNestingFlag; // temporal_id_nesting_flag
 
-    RK_U32          m_scalingListEnabledFlag; //TODO: replaced with scaling_list_mode
+    RK_U32          m_scalingListEnabledFlag; // scaling_list_mode
     RK_U32          m_scalingListPresentFlag;
+    MppEncH265ScalingListCfg m_scalingListCfg;
     RK_U32          m_maxDecPicBuffering[MAX_SUB_LAYERS];
 
     RK_U32          m_maxLatencyIncrease[MAX_SUB_LAYERS]; // Really max latency increase plus 1 (value 0 expresses no limit)

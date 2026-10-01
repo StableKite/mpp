@@ -24,6 +24,7 @@
 
 #include "h265e_ps.h"
 #include "mpp_enc_ref.h"
+#include "mpp_enc_cfg.h"
 
 #define MAX_UINT        0xFFFFFFFFU
 
@@ -312,7 +313,14 @@ MPP_RET h265e_set_sps(H265eCtx *ctx, H265eSps *sps, H265eVps *vps)
     sps->m_pcmBitDepthChroma = 8;
 
     sps->m_bPCMFilterDisableFlag = 0;
-    sps->m_scalingListEnabledFlag = codec->trans_cfg.scaling_list_mode == 0 ? 0 : 1;
+    sps->m_scalingListEnabledFlag = codec->trans_cfg.scaling_list_mode;
+    if (sps->m_scalingListEnabledFlag > 2)
+        return MPP_ERR_VALUE;
+    if (sps->m_scalingListEnabledFlag == 2) {
+        if (mpp_enc_h265_scaling_list_check(&ctx->cfg->h265_scaling_list_cfg))
+            return MPP_ERR_VALUE;
+        sps->m_scalingListCfg = ctx->cfg->h265_scaling_list_cfg;
+    }
 
     sps->m_bitsForPOC = 16;
     sps->m_numLongTermRefPicSPS = 0;

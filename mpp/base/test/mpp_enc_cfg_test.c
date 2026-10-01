@@ -131,6 +131,79 @@ done:
     return _mpp_ret;
 }
 
+MPP_TEST(test_scaling_list_cfg)
+{
+    MPP_RET_VARS;
+    TestCtx *tc = (TestCtx *)ctx;
+    MppEncCfg cfg = tc->cfg;
+    MppEncH264ScalingListCfg h264;
+    MppEncH264ScalingListCfg h264_ret;
+    MppEncH265ScalingListCfg h265;
+    MppEncH265ScalingListCfg h265_ret;
+    rk_s32 m;
+    rk_s32 i;
+    rk_s32 ret;
+
+    memset(&h264, 0, sizeof(h264));
+    memset(&h264_ret, 0, sizeof(h264_ret));
+    memset(&h265, 0, sizeof(h265));
+    memset(&h265_ret, 0, sizeof(h265_ret));
+
+    h264.version = MPP_ENC_H264_SCALING_LIST_VERSION_1;
+    for (i = 0; i < 64; i++) {
+        h264.intra8x8[i] = (RK_U8)(1 + (i % 255));
+        h264.inter8x8[i] = (RK_U8)(255 - (i % 255));
+    }
+
+    h265.version = MPP_ENC_H265_SCALING_LIST_VERSION_1;
+    for (m = 0; m < 6; m++) {
+        for (i = 0; i < 64; i++) {
+            h265.tu8[m][i] = (RK_U8)(1 + ((i + m) % 255));
+            h265.tu16[m][i] = (RK_U8)(1 + ((i + 2 * m) % 255));
+        }
+    }
+    for (m = 0; m < 2; m++) {
+        for (i = 0; i < 64; i++)
+            h265.tu32[m][i] = (RK_U8)(1 + ((i + 3 * m) % 255));
+    }
+    for (i = 0; i < 8; i++)
+        h265.dc[i] = (RK_U8)(8 + i);
+
+    MPP_ASSERT(!mpp_enc_h264_scaling_list_check(&h264));
+    MPP_ASSERT(!mpp_enc_h265_scaling_list_check(&h265));
+
+    ret = mpp_enc_cfg_set_st(cfg, "h264:scaling_list_cfg", &h264);
+    MPP_ASSERT(!ret);
+    ret = mpp_enc_cfg_get_st(cfg, "h264:scaling_list_cfg", &h264_ret);
+    MPP_ASSERT(!ret);
+    MPP_ASSERT(!memcmp(&h264, &h264_ret, sizeof(h264)));
+
+    ret = mpp_enc_cfg_set_st(cfg, "h265:scaling_list_cfg", &h265);
+    MPP_ASSERT(!ret);
+    ret = mpp_enc_cfg_get_st(cfg, "h265:scaling_list_cfg", &h265_ret);
+    MPP_ASSERT(!ret);
+    MPP_ASSERT(!memcmp(&h265, &h265_ret, sizeof(h265)));
+
+    h264.version = 0;
+    MPP_ASSERT(mpp_enc_h264_scaling_list_check(&h264) == MPP_ERR_VALUE);
+    h264.version = MPP_ENC_H264_SCALING_LIST_VERSION_1;
+    h264.intra8x8[0] = 0;
+    MPP_ASSERT(mpp_enc_h264_scaling_list_check(&h264) == MPP_ERR_VALUE);
+
+    h265.version = 0;
+    MPP_ASSERT(mpp_enc_h265_scaling_list_check(&h265) == MPP_ERR_VALUE);
+    h265.version = MPP_ENC_H265_SCALING_LIST_VERSION_1;
+    h265.tu8[0][0] = 0;
+    MPP_ASSERT(mpp_enc_h265_scaling_list_check(&h265) == MPP_ERR_VALUE);
+    h265.tu8[0][0] = 1;
+    h265.dc[0] = 0;
+    MPP_ASSERT(mpp_enc_h265_scaling_list_check(&h265) == MPP_ERR_VALUE);
+
+    MPP_PASS();
+done:
+    return _mpp_ret;
+}
+
 MPP_TEST(test_extract)
 {
     MPP_RET_VARS;
@@ -433,6 +506,7 @@ static rk_s32 test_apply_from_file(MppEncCfg cfg, rk_u32 flag, const char *path)
 static MppTestCase test_cases[] = {
     { "scalar set/get",            MPP_FLAG_VERBOSE, 0, test_scalar_set_get },
     { "array set/get",             MPP_FLAG_VERBOSE, 0, test_array_set_get  },
+    { "scaling list cfg",          MPP_FLAG_VERBOSE, 0, test_scaling_list_cfg },
     { "extract LOG",               MPP_FLAG_VERBOSE, 1, test_extract        },
     { "apply scalar",              MPP_FLAG_VERBOSE, 1, test_apply_scalar   },
     { "apply array (aq_step)",     MPP_FLAG_VERBOSE, 1, test_apply_array    },

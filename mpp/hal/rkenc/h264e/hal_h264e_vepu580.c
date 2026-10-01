@@ -44,6 +44,81 @@
 
 #define MAX_TASK_CNT        2
 
+#define H264_SCL_USER_WORDS 576
+
+static MPP_RET h264e_vepu580_pack_scl(RK_U32 *dst,
+                                      const RK_U8 *intra,
+                                      const RK_U8 *inter)
+{
+    const RK_U16 *flat = (const RK_U16 *)vepu580_540_h264_flat_scl_tab;
+    RK_U16 *out = (RK_U16 *)dst;
+    RK_U32 q;
+    RK_U32 i;
+
+    for (q = 0; q < 6; q++) {
+        for (i = 0; i < 64; i++) {
+            RK_U32 base = flat[q * 64 + i];
+            RK_U32 t = ((i & 7) << 3) | (i >> 3);
+            RK_U32 c0 = intra[t];
+            RK_U32 c1 = inter[t];
+            RK_U32 v0;
+            RK_U32 v1;
+
+            if (!c0 || !c1)
+                return MPP_ERR_VALUE;
+
+            v0 = (base * 16 + (c0 >> 1)) / c0;
+            v1 = (base * 16 + (c1 >> 1)) / c1;
+            if (v0 > 0xffff || v1 > 0xffff)
+                return MPP_ERR_VALUE;
+
+            out[q * 64 + i] = (RK_U16)v0;
+            out[384 + q * 64 + i] =
+                (RK_U16)((v1 & 0xff) |
+                         ((q == 0 ? (c0 & 0x0f) :
+                           q == 1 ? (c1 & 0x0f) : 0) << 8));
+            out[768 + q * 64 + i] =
+                (RK_U16)(((v1 >> 8) & 0xff) |
+                         ((q == 2 ? (c0 >> 4) :
+                           q == 3 ? (c1 >> 4) : 0) << 8));
+        }
+    }
+
+    return MPP_OK;
+}
+
+static MPP_RET h264e_vepu580_scl_cfg(Vepu580SclCfg *regs, RK_S32 mode,
+                                      const MppEncH264ScalingListCfg *user)
+{
+    RK_U32 *dst = (RK_U32 *)regs;
+    RK_U32 i;
+    MPP_RET ret;
+
+    memset(regs, 0, sizeof(*regs));
+
+    if (mode != 2) {
+        memcpy(dst, vepu580_540_h264_flat_scl_tab,
+               sizeof(vepu580_540_h264_flat_scl_tab));
+        return MPP_OK;
+    }
+
+    ret = mpp_enc_h264_scaling_list_check(user);
+    if (ret)
+        return ret;
+
+    ret = h264e_vepu580_pack_scl(dst, user->intra8x8, user->inter8x8);
+    if (ret)
+        return ret;
+
+    for (i = H264_SCL_USER_WORDS; i < sizeof(*regs) / sizeof(RK_U32); i++) {
+        if (dst[i])
+            return MPP_NOK;
+    }
+
+    return MPP_OK;
+}
+
+
 typedef Vepu5xxRoiH264BsCfg Vepu580RoiH264BsCfg;
 
 typedef struct HalH264eVepu580Ctx_t {
@@ -2118,7 +2193,11 @@ static MPP_RET hal_h264e_vepu580_gen_regs(void *hal, HalEncTask *task)
     setup_vepu580_rdo_bias_cfg(&regs->reg_rdo, &cfg->hw);
 
     // scl cfg
-    memcpy(&regs->reg_scl, vepu580_540_h264_flat_scl_tab, sizeof(vepu580_540_h264_flat_scl_tab));
+    ret = h264e_vepu580_scl_cfg(&regs->reg_scl,
+                                 pps->pic_scaling_matrix_present,
+                                 &cfg->h264_scaling_list_cfg);
+    if (ret)
+        return ret;
 
     setup_vepu580_rc_base(regs, ctx, rc_task);
     setup_vepu580_io_buf(regs, ctx->offsets, task);

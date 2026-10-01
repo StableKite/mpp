@@ -721,7 +721,7 @@ typedef struct MppEncH264Cfg_t {
     /*
      * 0 : flat scaling list
      * 1 : default scaling list for all cases
-     * 2 : customized scaling list (not supported)
+     * 2 : customized scaling list via h264:scaling_list_cfg
      */
     RK_S32              scaling_list_mode;
 

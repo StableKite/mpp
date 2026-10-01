@@ -1071,6 +1071,7 @@ static void proc_h264_cfg(MppEncImpl *enc)
     set->transform8x8_mode = transform8x8_mode;
 
     memcpy(cfg, set, sizeof(*cfg));
+    enc->cfg->h264_scaling_list_cfg = enc->set->h264_scaling_list_cfg;
     enc_set_resend_hdr(enc, "h264 cfg changed");
 }
 
@@ -1122,6 +1123,7 @@ static void proc_h265_cfg(MppEncImpl *enc)
     }
 
     memcpy(cfg, set, sizeof(*cfg));
+    enc->cfg->h265_scaling_list_cfg = enc->set->h265_scaling_list_cfg;
     enc_set_resend_hdr(enc, "h265 cfg changed");
 }
 

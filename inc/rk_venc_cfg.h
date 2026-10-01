@@ -8,7 +8,44 @@
 
 #include "rk_mpp_cfg.h"
 
+
 typedef void* MppEncCfg;
+
+#define MPP_ENC_H264_SCALING_LIST_VERSION_1  1
+#define MPP_ENC_H265_SCALING_LIST_VERSION_1  1
+
+/*
+ * H.264 custom scaling-list payload for h264:scaling_list_cfg.
+ * Coefficients are in codec-domain raster order and must be in [1, 255].
+ * Set h264:scaling_list to 2 to enable this payload.
+ */
+typedef struct MppEncH264ScalingListCfg_t {
+    RK_U32 version;
+    RK_U8  intra8x8[64];
+    RK_U8  inter8x8[64];
+} MppEncH264ScalingListCfg;
+
+/*
+ * H.265 custom scaling-list payload for h265:scaling_list_cfg.
+ * Coefficients are in codec-domain raster order and must be in [1, 255].
+ *
+ * tu8 / tu16 order:
+ *   intra Y, intra U, intra V, inter Y, inter U, inter V
+ * tu32 order:
+ *   intra Y, inter Y
+ * dc order:
+ *   TU16 intra Y/U/V, TU16 inter Y/U/V, TU32 intra Y, TU32 inter Y
+ *
+ * V1 exposes only the programmable TU8/TU16/TU32 surfaces.
+ * Set h265:scaling_list to 2 to enable this payload.
+ */
+typedef struct MppEncH265ScalingListCfg_t {
+    RK_U32 version;
+    RK_U8  tu8[6][64];
+    RK_U8  tu16[6][64];
+    RK_U8  tu32[2][64];
+    RK_U8  dc[8];
+} MppEncH265ScalingListCfg;
 
 #ifdef __cplusplus
 extern "C" {
