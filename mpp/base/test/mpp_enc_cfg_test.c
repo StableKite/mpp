@@ -476,7 +476,7 @@ static rk_s32 test_apply_from_file(MppEncCfg cfg, rk_u32 flag, const char *path)
 {
     char *fbuf = NULL;
     MppCfgStrFmt fmt = MPP_CFG_STR_FMT_JSON;
-    char *ext;
+    const char *ext;
     rk_s32 ret = 0;
 
     ext = strrchr(path, '.');
