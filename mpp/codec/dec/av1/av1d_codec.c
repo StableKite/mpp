@@ -1092,15 +1092,14 @@ static MPP_RET read_loop_filter_params(Av1Codec *ctx, BitReadCtx_t *gb,
         }
 
         READ_ONEBIT(gb, &f->loop_filter_delta_update);
+        memset(f->update_ref_delta, 0, sizeof(f->update_ref_delta));
+        memcpy(f->loop_filter_ref_deltas, ref_loop_filter_ref_deltas,
+               sizeof(f->loop_filter_ref_deltas));
         for (i = 0; i < AV1_TOTAL_REFS_PER_FRAME; i++) {
             if (f->loop_filter_delta_update)
                 READ_ONEBIT(gb, &f->update_ref_delta[i]);
-            else
-                f->update_ref_delta[i] = 0;
             if (f->update_ref_delta[i])
                 READ_SU(gb, 7, &f->loop_filter_ref_deltas[i]);
-            else
-                f->loop_filter_ref_deltas[i] = ref_loop_filter_ref_deltas[i];
         }
         for (i = 0; i < 2; i++) {
             if (f->loop_filter_delta_update)
