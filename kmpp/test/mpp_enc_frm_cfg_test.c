@@ -166,7 +166,7 @@ static rk_s32 test_file(const char *path)
     char *out = NULL;
     char *re_out = NULL;
     rk_s32 ret = 0;
-    char *ext = strrchr(path, '.');
+    const char *ext = strrchr(path, '.');
 
     if (ext) {
         if (!strcmp(ext, ".toml"))
